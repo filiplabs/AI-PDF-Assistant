@@ -11,6 +11,8 @@ const documentCount = document.querySelector(".document-count");
 const sendButton = document.querySelector(".send-button");
 const chatContent = document.querySelector("#chat-content");
 const clearChatButton = document.querySelector("#clear-chat-button");
+const statusText = document.querySelector("#status-text");
+const statusDot = document.querySelector(".status-dot");
 
 const documents = [];
 
@@ -298,8 +300,47 @@ function addChatMessage(role, message) {
         block: "end",
     });
 }
+function setApplicationStatus(status) {
+    statusText.textContent = status;
+
+    statusDot.classList.remove(
+        "processing",
+        "error"
+    );
+
+    if (status === "Thinking..." || status === "Analyzing PDF...") {
+        statusDot.classList.add("processing");
+    }
+
+    if (status === "Error") {
+        statusDot.classList.add("error");
+    }
+}
+
+function setChatLoading(isLoading) {
+    messageInput.disabled = isLoading;
+
+    if (isLoading) {
+        sendButton.disabled = true;
+        messageInput.placeholder = "AI is analyzing your question...";
+        setApplicationStatus("Thinking...");
+        return;
+    }
+
+    messageInput.disabled = documents.length === 0;
+
+    messageInput.placeholder =
+        documents.length > 0
+            ? "Ask anything about your PDFs..."
+            : "Upload a PDF to start asking questions...";
+
+    setApplicationStatus("Ready");
+    updateSendButton();
+}
 
 function addLoadingMessage() {
+    removeLoadingMessage();
+
     const chatMessages = ensureChatMessagesContainer();
 
     const article = document.createElement("article");
@@ -309,13 +350,17 @@ function addLoadingMessage() {
     article.innerHTML = `
         <div class="message-avatar">AI</div>
 
-        <div class="message-bubble">
+        <div class="message-bubble loading-bubble">
             <span class="message-label">AI Assistant</span>
 
-            <div class="typing-indicator" aria-label="AI is thinking">
-                <span></span>
-                <span></span>
-                <span></span>
+            <div class="thinking-row">
+                <div class="typing-indicator" aria-label="AI is thinking">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </div>
+
+                <span class="thinking-text">Analyzing document...</span>
             </div>
         </div>
     `;
@@ -365,6 +410,7 @@ async function processSelectedFile(file) {
     uploadStatus.hidden = false;
     uploadBox.style.pointerEvents = "none";
     uploadBox.style.opacity = "0.65";
+    setApplicationStatus("Analyzing PDF...");
 
     try {
         const formData = new FormData();
@@ -403,11 +449,14 @@ ${data.document.summary}`
         );
     } catch (error) {
         showUploadError(error.message);
+        setApplicationStatus("Error");
     } finally {
         uploadStatus.hidden = true;
         uploadBox.style.pointerEvents = "";
         uploadBox.style.opacity = "";
         pdfInput.value = "";
+
+        setApplicationStatus("Ready");
     }
 }
 
@@ -442,11 +491,8 @@ messageForm.addEventListener("submit", async (event) => {
     messageInput.value = "";
     updateCharacterCount();
     resizeMessageInput();
-    updateSendButton();
 
-    messageInput.disabled = true;
-    sendButton.disabled = true;
-
+    setChatLoading(true);
     addLoadingMessage();
 
     try {
@@ -464,20 +510,26 @@ messageForm.addEventListener("submit", async (event) => {
         const data = await response.json();
 
         if (!response.ok) {
-            throw new Error(data.message || "Unable to answer the question.");
+            throw new Error(
+                data.message || "Unable to answer the question."
+            );
         }
 
         removeLoadingMessage();
         addChatMessage("ai", data.answer);
     } catch (error) {
         removeLoadingMessage();
+
         addChatMessage(
             "ai",
-            `Sorry, something went wrong: ${error.message}`
+            `Sorry, I couldn't answer that question.
+
+${error.message}`
         );
+
+        setApplicationStatus("Error");
     } finally {
-        messageInput.disabled = false;
-        updateSendButton();
+        setChatLoading(false);
         messageInput.focus();
     }
 });
