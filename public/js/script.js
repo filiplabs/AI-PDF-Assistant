@@ -177,19 +177,24 @@ async function processSelectedFile(file) {
             body: formData,
         });
 
+        
         const data = await response.json();
 
-        if (!response.ok) {
-            throw new Error(data.message || "PDF upload failed.");
-        }
+if (!response.ok) {
+    throw new Error(data.message || "PDF upload failed.");
+}
+
+        console.log("AI summary:", data.document.summary);
 
         documents.push({
             id: data.document.id,
             name: data.document.name,
             size: data.document.size,
             storedName: data.document.storedName,
-        });
-
+            pages: data.document.pages,
+            characters: data.document.characters,
+            summary: data.document.summary,
+});
         renderDocuments();
     } catch (error) {
         showUploadError(error.message);
