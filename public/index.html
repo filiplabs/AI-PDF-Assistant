@@ -26,14 +26,15 @@
                 <label class="upload-box" id="upload-box" for="pdf-input">
                     <span class="upload-icon" aria-hidden="true">↑</span>
                     <strong>Upload PDF</strong>
-                    <span>Drag and drop or choose a file</span>
-                    <input
-                        id="pdf-input"
-                        type="file"
-                        accept="application/pdf,.pdf"
-                        hidden
-                    >
+                    <span>Drag and drop or choose PDF files</span>
                 </label>
+                <input
+                    id="pdf-input"
+                    type="file"
+                    accept="application/pdf,.pdf"
+                    multiple
+                    hidden
+                >
 
                 <div id="documents-container" aria-live="polite"></div>
 

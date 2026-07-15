@@ -33,11 +33,21 @@ const elements = {
 
 const state = {
     documents: [],
-    isChatLoading: false,
+    activeDocumentId: null,
+    pendingDocumentIds: new Set(),
+    isUploading: false,
 };
 
+function getDocumentById(documentId) {
+    return state.documents.find((document) => document.id === documentId) || null;
+}
+
 function getActiveDocument() {
-    return state.documents[0] || null;
+    return getDocumentById(state.activeDocumentId);
+}
+
+function isDocumentPending(documentId) {
+    return state.pendingDocumentIds.has(documentId);
 }
 
 function escapeHtml(value) {
@@ -104,6 +114,18 @@ function deletePdf(documentId) {
     });
 }
 
+function createFrontendDocument(documentData) {
+    return {
+        id: documentData.id,
+        name: documentData.name,
+        size: documentData.size,
+        pages: documentData.pages,
+        summary: documentData.summary,
+        messages: [],
+        draft: "",
+    };
+}
+
 function setApplicationStatus(status) {
     const statuses = {
         ready: { label: "Ready", className: "" },
@@ -119,6 +141,20 @@ function setApplicationStatus(status) {
     if (nextStatus.className) {
         elements.statusDot.classList.add(nextStatus.className);
     }
+}
+
+function syncApplicationStatus() {
+    if (state.isUploading) {
+        setApplicationStatus("uploading");
+        return;
+    }
+
+    const activeDocument = getActiveDocument();
+    setApplicationStatus(
+        activeDocument && isDocumentPending(activeDocument.id)
+            ? "thinking"
+            : "ready"
+    );
 }
 
 function showUploadError(message) {
@@ -139,9 +175,8 @@ function setUploadBusy(isBusy, fileName = "") {
 }
 
 function updateCharacterCount() {
-    const currentLength = elements.messageInput.value.length;
     elements.characterCount.textContent =
-        `${currentLength} / ${MAX_MESSAGE_LENGTH}`;
+        `${elements.messageInput.value.length} / ${MAX_MESSAGE_LENGTH}`;
 }
 
 function resizeMessageInput() {
@@ -151,41 +186,43 @@ function resizeMessageInput() {
 }
 
 function updateComposer() {
-    const hasDocument = Boolean(getActiveDocument());
+    const activeDocument = getActiveDocument();
+    const isPending = activeDocument
+        ? isDocumentPending(activeDocument.id)
+        : false;
+    const isEnabled = Boolean(activeDocument) && !isPending;
     const hasMessage = elements.messageInput.value.trim().length > 0;
-    const isEnabled = hasDocument && !state.isChatLoading;
 
     elements.messageInput.disabled = !isEnabled;
     elements.sendButton.disabled = !(isEnabled && hasMessage);
-    elements.clearChatButton.disabled = !hasDocument || state.isChatLoading;
+    elements.clearChatButton.disabled = !activeDocument || isPending;
     updateCharacterCount();
     resizeMessageInput();
 }
 
-function resetComposer() {
-    elements.messageInput.value = "";
-    elements.messageInput.placeholder = getActiveDocument()
-        ? "Ask anything about your PDFs..."
+function loadActiveDocumentDraft() {
+    const activeDocument = getActiveDocument();
+    elements.messageInput.value = activeDocument?.draft || "";
+    elements.messageInput.placeholder = activeDocument
+        ? isDocumentPending(activeDocument.id)
+            ? "AI is analyzing your question..."
+            : "Ask anything about this PDF..."
         : "Upload a PDF to start asking questions...";
     updateComposer();
 }
 
 function focusMessageInput() {
+    const activeDocument = getActiveDocument();
+
+    if (!activeDocument || isDocumentPending(activeDocument.id)) {
+        return;
+    }
+
     updateComposer();
     elements.messageInput.focus();
     const cursorPosition = elements.messageInput.value.length;
     elements.messageInput.setSelectionRange(cursorPosition, cursorPosition);
     elements.messageInput.scrollIntoView({ behavior: "smooth", block: "nearest" });
-}
-
-function setChatLoading(isLoading) {
-    state.isChatLoading = isLoading;
-    elements.messageInput.placeholder = isLoading
-        ? "AI is analyzing your question..."
-        : getActiveDocument()
-            ? "Ask anything about your PDFs..."
-            : "Upload a PDF to start asking questions...";
-    updateComposer();
 }
 
 function renderWelcomeCard() {
@@ -211,32 +248,43 @@ function renderDocuments() {
                 <span>Your PDFs will appear here.</span>
             </div>
         `;
-        resetComposer();
         return;
     }
 
     const documentItems = state.documents
-        .map((document, index) => {
+        .map((document) => {
+            const isActive = document.id === state.activeDocumentId;
+            const isPending = isDocumentPending(document.id);
             const safeName = escapeHtml(document.name);
             const pageLabel = document.pages === 1 ? "page" : "pages";
 
             return `
-                <article class="document-item ${index === 0 ? "active" : ""}">
-                    <div class="document-icon" aria-hidden="true">📄</div>
-                    <div class="document-info">
-                        <span class="document-name" title="${safeName}">
-                            ${safeName}
+                <article class="document-item ${isActive ? "active" : ""}">
+                    <button
+                        class="document-select-button"
+                        type="button"
+                        data-document-id="${escapeHtml(document.id)}"
+                        aria-pressed="${isActive}"
+                        aria-label="Open ${safeName}"
+                    >
+                        <span class="document-icon" aria-hidden="true">📄</span>
+                        <span class="document-info">
+                            <span class="document-name" title="${safeName}">
+                                ${safeName}
+                            </span>
+                            <span class="document-meta">
+                                ${formatFileSize(document.size)} ·
+                                ${document.pages} ${pageLabel} ·
+                                ${isPending ? "Thinking..." : "Ready"}
+                            </span>
                         </span>
-                        <span class="document-meta">
-                            ${formatFileSize(document.size)} ·
-                            ${document.pages} ${pageLabel} · Ready
-                        </span>
-                    </div>
+                    </button>
                     <button
                         class="remove-document"
                         type="button"
                         data-document-id="${escapeHtml(document.id)}"
                         aria-label="Remove ${safeName}"
+                        ${isPending ? "disabled" : ""}
                     >
                         ×
                     </button>
@@ -248,49 +296,22 @@ function renderDocuments() {
     elements.documentsContainer.innerHTML = `
         <div class="document-list">${documentItems}</div>
     `;
-
-    if (!state.isChatLoading) {
-        elements.messageInput.placeholder = "Ask anything about your PDFs...";
-    }
-
-    updateComposer();
 }
 
-function ensureChatMessagesContainer() {
-    const existingContainer = document.querySelector("#chat-messages");
-
-    if (existingContainer) {
-        return existingContainer;
-    }
-
-    const chatMessages = document.createElement("div");
-    chatMessages.className = "chat-messages";
-    chatMessages.id = "chat-messages";
-    elements.chatContent.classList.add("has-messages");
-    elements.chatContent.replaceChildren(chatMessages);
-    return chatMessages;
-}
-
-function scrollMessageIntoView(messageElement) {
-    messageElement.scrollIntoView({ behavior: "smooth", block: "end" });
-}
-
-function addChatMessage(role, message, options = {}) {
-    const chatMessages = ensureChatMessagesContainer();
-    const isAi = role === "ai";
-    const isSummary = options.isSummary === true;
-    const safeDocumentName = escapeHtml(options.documentName || "document");
+function createMessageElement(message) {
+    const isAi = message.role === "ai";
+    const safeDocumentName = escapeHtml(message.documentName || "document");
     const messageElement = document.createElement("article");
 
     messageElement.className = `chat-message ${isAi ? "ai" : "user"}`;
-    messageElement.dataset.message = message;
+    messageElement.dataset.message = message.content;
     messageElement.innerHTML = `
         <div class="message-avatar" aria-hidden="true">
             ${isAi ? "AI" : "You"}
         </div>
         <div class="message-bubble">
             <span class="message-label">${isAi ? "AI Assistant" : "You"}</span>
-            <div class="message-text">${escapeHtml(message)}</div>
+            <div class="message-text">${escapeHtml(message.content)}</div>
             ${
                 isAi
                     ? `
@@ -299,7 +320,7 @@ function addChatMessage(role, message, options = {}) {
                                 📋 Copy
                             </button>
                             ${
-                                isSummary
+                                message.isSummary
                                     ? `
                                         <button
                                             class="download-summary-button"
@@ -317,16 +338,11 @@ function addChatMessage(role, message, options = {}) {
             }
         </div>
     `;
-
-    chatMessages.appendChild(messageElement);
-    scrollMessageIntoView(messageElement);
+    return messageElement;
 }
 
-function addLoadingMessage() {
-    removeLoadingMessage();
-    const chatMessages = ensureChatMessagesContainer();
+function createLoadingMessageElement() {
     const loadingMessage = document.createElement("article");
-
     loadingMessage.className = "chat-message ai";
     loadingMessage.id = "ai-loading-message";
     loadingMessage.innerHTML = `
@@ -341,13 +357,80 @@ function addLoadingMessage() {
             </div>
         </div>
     `;
-
-    chatMessages.appendChild(loadingMessage);
-    scrollMessageIntoView(loadingMessage);
+    return loadingMessage;
 }
 
-function removeLoadingMessage() {
-    document.querySelector("#ai-loading-message")?.remove();
+function renderActiveConversation({ scrollToEnd = false } = {}) {
+    const activeDocument = getActiveDocument();
+
+    if (!activeDocument) {
+        renderWelcomeCard();
+        return;
+    }
+
+    const isPending = isDocumentPending(activeDocument.id);
+
+    if (activeDocument.messages.length === 0 && !isPending) {
+        renderWelcomeCard();
+        return;
+    }
+
+    const chatMessages = document.createElement("div");
+    chatMessages.className = "chat-messages";
+    chatMessages.id = "chat-messages";
+
+    activeDocument.messages.forEach((message) => {
+        chatMessages.appendChild(createMessageElement(message));
+    });
+
+    if (isPending) {
+        chatMessages.appendChild(createLoadingMessageElement());
+    }
+
+    elements.chatContent.classList.add("has-messages");
+    elements.chatContent.replaceChildren(chatMessages);
+
+    if (scrollToEnd && chatMessages.lastElementChild) {
+        chatMessages.lastElementChild.scrollIntoView({
+            behavior: "smooth",
+            block: "end",
+        });
+    }
+}
+
+function addDocumentMessage(documentId, message) {
+    const document = getDocumentById(documentId);
+
+    if (!document) {
+        return;
+    }
+
+    document.messages.push(message);
+
+    if (documentId === state.activeDocumentId) {
+        renderActiveConversation({ scrollToEnd: true });
+    }
+}
+
+function syncActiveDocumentUi({ focusComposer = false } = {}) {
+    renderDocuments();
+    renderActiveConversation();
+    loadActiveDocumentDraft();
+    syncApplicationStatus();
+
+    if (focusComposer) {
+        focusMessageInput();
+    }
+}
+
+function selectDocument(documentId) {
+    if (documentId === state.activeDocumentId || !getDocumentById(documentId)) {
+        return;
+    }
+
+    state.activeDocumentId = documentId;
+    clearUploadError();
+    syncActiveDocumentUi({ focusComposer: true });
 }
 
 function isPdf(file) {
@@ -369,41 +452,59 @@ function validatePdf(file) {
     const isDuplicate = state.documents.some(
         (document) => document.name === file.name && document.size === file.size
     );
-
     return isDuplicate ? "This PDF has already been added." : "";
 }
 
-async function processSelectedFile(file) {
-    clearUploadError();
-    const validationError = validatePdf(file);
+async function processSelectedFiles(fileList) {
+    const files = Array.from(fileList || []);
 
-    if (validationError) {
-        showUploadError(validationError);
-        elements.pdfInput.value = "";
+    if (files.length === 0 || state.isUploading) {
         return;
     }
 
-    setUploadBusy(true, file.name);
-    setApplicationStatus("uploading");
+    state.isUploading = true;
+    clearUploadError();
+    setUploadBusy(true, files[0].name);
+    syncApplicationStatus();
 
-    try {
-        const data = await uploadPdf(file);
-        state.documents.push({
-            id: data.document.id,
-            name: data.document.name,
-            size: data.document.size,
-            pages: data.document.pages,
-            summary: data.document.summary,
-        });
-        renderDocuments();
-        setApplicationStatus("ready");
-        focusMessageInput();
-    } catch (error) {
-        showUploadError(error.message);
+    const uploadErrors = [];
+    let successfulUploadCount = 0;
+
+    for (const file of files) {
+        const validationError = validatePdf(file);
+
+        if (validationError) {
+            uploadErrors.push(`${file.name}: ${validationError}`);
+            continue;
+        }
+
+        setUploadBusy(true, file.name);
+
+        try {
+            const data = await uploadPdf(file);
+            const uploadedDocument = createFrontendDocument(data.document);
+            state.documents.push(uploadedDocument);
+            state.activeDocumentId = uploadedDocument.id;
+            successfulUploadCount += 1;
+            syncActiveDocumentUi();
+        } catch (error) {
+            uploadErrors.push(`${file.name}: ${error.message}`);
+        }
+    }
+
+    state.isUploading = false;
+    setUploadBusy(false);
+    elements.pdfInput.value = "";
+
+    if (uploadErrors.length > 0) {
+        showUploadError(uploadErrors.join(" "));
         setApplicationStatus("error");
-    } finally {
-        setUploadBusy(false);
-        elements.pdfInput.value = "";
+    } else {
+        syncApplicationStatus();
+    }
+
+    if (successfulUploadCount > 0) {
+        focusMessageInput();
     }
 }
 
@@ -412,7 +513,7 @@ async function removeDocument(documentId) {
         (document) => document.id === documentId
     );
 
-    if (documentIndex === -1) {
+    if (documentIndex === -1 || isDocumentPending(documentId)) {
         return;
     }
 
@@ -424,14 +525,19 @@ async function removeDocument(documentId) {
 
     try {
         await deletePdf(documentId);
+        const removedActiveDocument = documentId === state.activeDocumentId;
         state.documents.splice(documentIndex, 1);
-        renderDocuments();
+        state.pendingDocumentIds.delete(documentId);
 
-        if (state.documents.length === 0) {
-            renderWelcomeCard();
+        if (removedActiveDocument) {
+            const replacementDocument =
+                state.documents[documentIndex] ||
+                state.documents[documentIndex - 1] ||
+                null;
+            state.activeDocumentId = replacementDocument?.id || null;
         }
 
-        setApplicationStatus("ready");
+        syncActiveDocumentUi({ focusComposer: Boolean(getActiveDocument()) });
     } catch (error) {
         window.alert(error.message);
         setApplicationStatus("error");
@@ -439,6 +545,13 @@ async function removeDocument(documentId) {
 }
 
 function submitSuggestedQuestion(question) {
+    const activeDocument = getActiveDocument();
+
+    if (!activeDocument) {
+        return;
+    }
+
+    activeDocument.draft = question;
     elements.messageInput.value = question;
     updateComposer();
     elements.messageForm.requestSubmit();
@@ -455,18 +568,20 @@ function handleSuggestionAction(action) {
     clearUploadError();
 
     if (action === "summarize") {
-        addChatMessage(
-            "ai",
-            `Summary of ${activeDocument.name}:\n\n${activeDocument.summary}`,
-            { isSummary: true, documentName: activeDocument.name }
-        );
+        addDocumentMessage(activeDocument.id, {
+            role: "ai",
+            content: `Summary of ${activeDocument.name}:\n\n${activeDocument.summary}`,
+            isSummary: true,
+            documentName: activeDocument.name,
+        });
         return;
     }
 
     if (action === "question") {
+        activeDocument.draft = "";
         elements.messageInput.value = "";
         elements.messageInput.placeholder =
-            "Ask a specific question about the PDF...";
+            "Ask a specific question about this PDF...";
         focusMessageInput();
         return;
     }
@@ -481,31 +596,48 @@ async function handleMessageSubmit(event) {
     const activeDocument = getActiveDocument();
     const question = elements.messageInput.value.trim();
 
-    if (!activeDocument || !question || state.isChatLoading) {
+    if (
+        !activeDocument ||
+        !question ||
+        isDocumentPending(activeDocument.id)
+    ) {
         return;
     }
 
-    addChatMessage("user", question);
+    const documentId = activeDocument.id;
+    activeDocument.draft = "";
     elements.messageInput.value = "";
-    setChatLoading(true);
-    setApplicationStatus("thinking");
-    addLoadingMessage();
+    activeDocument.messages.push({ role: "user", content: question });
+    state.pendingDocumentIds.add(documentId);
+    renderDocuments();
+    renderActiveConversation({ scrollToEnd: true });
+    loadActiveDocumentDraft();
+    syncApplicationStatus();
+
+    let requestFailed = false;
 
     try {
-        const data = await askPdfQuestion(activeDocument.id, question);
-        removeLoadingMessage();
-        addChatMessage("ai", data.answer);
-        setApplicationStatus("ready");
+        const data = await askPdfQuestion(documentId, question);
+        addDocumentMessage(documentId, { role: "ai", content: data.answer });
     } catch (error) {
-        removeLoadingMessage();
-        addChatMessage(
-            "ai",
-            `Sorry, I couldn't answer that question.\n\n${error.message}`
-        );
-        setApplicationStatus("error");
+        requestFailed = true;
+        addDocumentMessage(documentId, {
+            role: "ai",
+            content: `Sorry, I couldn't answer that question.\n\n${error.message}`,
+        });
     } finally {
-        setChatLoading(false);
-        focusMessageInput();
+        state.pendingDocumentIds.delete(documentId);
+
+        if (getDocumentById(documentId)) {
+            renderDocuments();
+        }
+
+        if (documentId === state.activeDocumentId) {
+            renderActiveConversation({ scrollToEnd: true });
+            loadActiveDocumentDraft();
+            setApplicationStatus(requestFailed ? "error" : "ready");
+            focusMessageInput();
+        }
     }
 }
 
@@ -514,7 +646,8 @@ async function handleClearChat() {
 
     if (
         !activeDocument ||
-        !window.confirm("Are you sure you want to clear the conversation?")
+        isDocumentPending(activeDocument.id) ||
+        !window.confirm(`Clear the conversation for "${activeDocument.name}"?`)
     ) {
         return;
     }
@@ -523,9 +656,11 @@ async function handleClearChat() {
 
     try {
         await clearPdfConversation(activeDocument.id);
-        renderWelcomeCard();
-        resetComposer();
-        setApplicationStatus("ready");
+        activeDocument.messages = [];
+        activeDocument.draft = "";
+        renderActiveConversation();
+        loadActiveDocumentDraft();
+        syncApplicationStatus();
     } catch (error) {
         window.alert(error.message);
         setApplicationStatus("error");
@@ -623,7 +758,15 @@ function loadSavedTheme() {
     applyTheme(prefersDarkTheme ? "dark" : "light");
 }
 
-elements.messageInput.addEventListener("input", updateComposer);
+elements.messageInput.addEventListener("input", () => {
+    const activeDocument = getActiveDocument();
+
+    if (activeDocument) {
+        activeDocument.draft = elements.messageInput.value;
+    }
+
+    updateComposer();
+});
 elements.messageInput.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && !event.shiftKey) {
         event.preventDefault();
@@ -634,12 +777,13 @@ elements.messageInput.addEventListener("keydown", (event) => {
     }
 });
 elements.messageForm.addEventListener("submit", handleMessageSubmit);
+elements.uploadBox.addEventListener("click", (event) => {
+    event.preventDefault();
+    elements.pdfInput.multiple = true;
+    elements.pdfInput.click();
+});
 elements.pdfInput.addEventListener("change", () => {
-    const selectedFile = elements.pdfInput.files[0];
-
-    if (selectedFile) {
-        processSelectedFile(selectedFile);
-    }
+    processSelectedFiles(elements.pdfInput.files);
 });
 elements.uploadBox.addEventListener("dragover", (event) => {
     event.preventDefault();
@@ -651,17 +795,20 @@ elements.uploadBox.addEventListener("dragleave", () => {
 elements.uploadBox.addEventListener("drop", (event) => {
     event.preventDefault();
     elements.uploadBox.classList.remove("dragging");
-    const droppedFile = event.dataTransfer.files[0];
-
-    if (droppedFile) {
-        processSelectedFile(droppedFile);
-    }
+    processSelectedFiles(event.dataTransfer.files);
 });
 elements.documentsContainer.addEventListener("click", (event) => {
     const removeButton = event.target.closest(".remove-document");
 
     if (removeButton) {
         removeDocument(removeButton.dataset.documentId);
+        return;
+    }
+
+    const selectButton = event.target.closest(".document-select-button");
+
+    if (selectButton) {
+        selectDocument(selectButton.dataset.documentId);
     }
 });
 elements.chatContent.addEventListener("click", handleChatContentClick);
@@ -673,6 +820,5 @@ elements.themeToggleButton.addEventListener("click", () => {
     applyTheme(nextTheme);
 });
 
-renderWelcomeCard();
-renderDocuments();
+syncActiveDocumentUi();
 loadSavedTheme();

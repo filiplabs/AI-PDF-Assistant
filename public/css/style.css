@@ -614,8 +614,8 @@ textarea:disabled {
 .document-item {
     display: flex;
     align-items: center;
-    gap: 11px;
-    padding: 12px;
+    gap: 4px;
+    padding: 4px;
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 13px;
     background: rgba(255, 255, 255, 0.04);
@@ -624,6 +624,25 @@ textarea:disabled {
 .document-item.active {
     border-color: rgba(129, 116, 255, 0.45);
     background: rgba(109, 93, 252, 0.12);
+}
+
+.document-select-button {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    gap: 11px;
+    min-width: 0;
+    padding: 8px;
+    border-radius: 9px;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    background: transparent;
+    transition: background 160ms ease;
+}
+
+.document-select-button:hover {
+    background: rgba(255, 255, 255, 0.05);
 }
 
 .document-icon {
@@ -673,6 +692,10 @@ textarea:disabled {
 .remove-document:hover {
     color: #fecaca;
     background: rgba(249, 112, 102, 0.12);
+}
+
+.remove-document:disabled {
+    opacity: 0.45;
 }
 
 @keyframes spin {
