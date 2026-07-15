@@ -3,150 +3,104 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
     <title>AI PDF Assistant</title>
-
     <link rel="stylesheet" href="./css/style.css">
 </head>
 <body>
     <div class="app">
-        <aside class="sidebar">
-            <div class="brand">
-                <div class="brand-icon">AI</div>
-
+        <aside class="sidebar" aria-label="PDF assistant controls">
+            <header class="brand">
+                <div class="brand-icon" aria-hidden="true">AI</div>
                 <div>
                     <h1>PDF Assistant</h1>
                     <p>Chat with your documents</p>
                 </div>
-            </div>
+            </header>
 
-            <button class="new-chat-button" type="button">
-                <span>+</span>
-                New conversation
-            </button>
-
-            <section class="sidebar-section">
+            <section class="sidebar-section" aria-labelledby="documents-heading">
                 <div class="section-heading">
-                    <span>Documents</span>
-                    <span class="document-count">0</span>
+                    <h2 id="documents-heading">Documents</h2>
+                    <span class="document-count" aria-label="0 documents">0</span>
                 </div>
 
                 <label class="upload-box" id="upload-box" for="pdf-input">
-                    <div class="upload-icon">↑</div>
+                    <span class="upload-icon" aria-hidden="true">↑</span>
                     <strong>Upload PDF</strong>
                     <span>Drag and drop or choose a file</span>
-
                     <input
                         id="pdf-input"
                         type="file"
-                        accept="application/pdf"
+                        accept="application/pdf,.pdf"
                         hidden
                     >
                 </label>
 
-                <div id="documents-container">
-                    <div class="empty-documents" id="empty-documents">
-                         <div class="empty-documents-icon">📄</div>
-                         <p>No documents uploaded</p>
-                        <span>Your PDFs will appear here.</span>
+                <div id="documents-container" aria-live="polite"></div>
+
+                <div
+                    class="upload-status"
+                    id="upload-status"
+                    role="status"
+                    aria-live="polite"
+                    hidden
+                >
+                    <span class="spinner" aria-hidden="true"></span>
+                    <div>
+                        <strong>Analyzing PDF...</strong>
+                        <span id="upload-file-name">Preparing document</span>
                     </div>
                 </div>
 
-                <div class="upload-status" id="upload-status" hidden>
-                     <div class="spinner"></div>
-                <div>
-                    <strong>Analyzing PDF...</strong>
-                    <span id="upload-file-name">Preparing document</span>
-                </div>
-            </div>
-
-<p class="upload-error" id="upload-error" hidden></p>
+                <p
+                    class="upload-error"
+                    id="upload-error"
+                    role="alert"
+                    hidden
+                ></p>
             </section>
 
-            <div class="sidebar-footer">
-                <button class="sidebar-action" id="theme-toggle-button" type="button">
-                <span id="theme-icon">◐</span>
-                <span id="theme-label">Dark mode</span>
-            </button>
+            <footer class="sidebar-footer">
+                <button
+                    class="sidebar-action"
+                    id="theme-toggle-button"
+                    type="button"
+                    aria-pressed="false"
+                >
+                    <span id="theme-icon" aria-hidden="true">◐</span>
+                    <span id="theme-label">Dark mode</span>
+                </button>
 
-               <button class="sidebar-action danger" id="clear-chat-button" type="button">
-                    <span>⌫</span>
+                <button
+                    class="sidebar-action danger"
+                    id="clear-chat-button"
+                    type="button"
+                    disabled
+                >
+                    <span aria-hidden="true">⌫</span>
                     Clear chat
-               </button>
-            </div>
+                </button>
+            </footer>
         </aside>
 
         <main class="chat-area">
             <header class="chat-header">
-                <div>
-                    <span class="status-dot"></span>
+                <div class="application-status" role="status" aria-live="polite">
+                    <span class="status-dot" aria-hidden="true"></span>
                     <span class="status-text" id="status-text">Ready</span>
-                </div>
-
-                <div class="header-actions">
-                    <button class="icon-button" type="button" aria-label="Search">
-                        ⌕
-                    </button>
-
-                    <button class="icon-button" type="button" aria-label="More options">
-                        ⋯
-                    </button>
                 </div>
             </header>
 
-            <section class="chat-content" id="chat-content">
-                <div class="welcome-card">
-                    <div class="welcome-icon">✦</div>
-
-                    <h2>Ask anything about your PDFs</h2>
-
-                    <p>
-                        Upload a document and get summaries, explanations,
-                        important details and instant answers.
-                    </p>
-
-                    <div class="suggestion-grid">
-                        <button class="suggestion-card" type="button">
-                            <span class="suggestion-icon">✎</span>
-
-                            <span>
-                                <strong>Summarize</strong>
-                                Give me a concise summary
-                            </span>
-                        </button>
-
-                        <button class="suggestion-card" type="button">
-                            <span class="suggestion-icon">?</span>
-
-                            <span>
-                                <strong>Ask a question</strong>
-                                Find specific information
-                            </span>
-                        </button>
-
-                        <button class="suggestion-card" type="button">
-                            <span class="suggestion-icon">⌕</span>
-
-                            <span>
-                                <strong>Search details</strong>
-                                Find terms, dates or clauses
-                            </span>
-                        </button>
-
-                        <button class="suggestion-card" type="button">
-                            <span class="suggestion-icon">≡</span>
-
-                            <span>
-                                <strong>Explain</strong>
-                                Simplify complex sections
-                            </span>
-                        </button>
-                    </div>
-                </div>
-            </section>
+            <section
+                class="chat-content"
+                id="chat-content"
+                aria-label="PDF conversation"
+            ></section>
 
             <footer class="chat-composer">
                 <form class="message-form">
+                    <label class="visually-hidden" for="message-input">
+                        Ask a question about the active PDF
+                    </label>
                     <textarea
                         id="message-input"
                         rows="1"
@@ -172,6 +126,51 @@
             </footer>
         </main>
     </div>
+
+    <template id="welcome-template">
+        <div class="welcome-card">
+            <div class="welcome-icon" aria-hidden="true">✦</div>
+            <h2>Ask anything about your PDFs</h2>
+            <p>
+                Upload a document and get summaries, explanations,
+                important details and instant answers.
+            </p>
+
+            <div class="suggestion-grid">
+                <button class="suggestion-card" type="button" data-action="summarize">
+                    <span class="suggestion-icon" aria-hidden="true">✎</span>
+                    <span>
+                        <strong>Summarize</strong>
+                        Give me a concise summary
+                    </span>
+                </button>
+
+                <button class="suggestion-card" type="button" data-action="question">
+                    <span class="suggestion-icon" aria-hidden="true">?</span>
+                    <span>
+                        <strong>Ask a question</strong>
+                        Find specific information
+                    </span>
+                </button>
+
+                <button class="suggestion-card" type="button" data-action="search">
+                    <span class="suggestion-icon" aria-hidden="true">⌕</span>
+                    <span>
+                        <strong>Search details</strong>
+                        Find terms, dates or clauses
+                    </span>
+                </button>
+
+                <button class="suggestion-card" type="button" data-action="explain">
+                    <span class="suggestion-icon" aria-hidden="true">≡</span>
+                    <span>
+                        <strong>Explain</strong>
+                        Simplify complex sections
+                    </span>
+                </button>
+            </div>
+        </div>
+    </template>
 
     <script src="./js/script.js"></script>
 </body>

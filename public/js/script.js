@@ -1,40 +1,52 @@
-const messageInput = document.querySelector("#message-input");
-const characterCount = document.querySelector("#character-count");
-const messageForm = document.querySelector(".message-form");
-const pdfInput = document.querySelector("#pdf-input");
-const uploadBox = document.querySelector("#upload-box");
-const uploadStatus = document.querySelector("#upload-status");
-const uploadFileName = document.querySelector("#upload-file-name");
-const uploadError = document.querySelector("#upload-error");
-const documentsContainer = document.querySelector("#documents-container");
-const documentCount = document.querySelector(".document-count");
-const sendButton = document.querySelector(".send-button");
-const chatContent = document.querySelector("#chat-content");
-const clearChatButton = document.querySelector("#clear-chat-button");
-const statusText = document.querySelector("#status-text");
-const statusDot = document.querySelector(".status-dot");
-const themeToggleButton = document.querySelector("#theme-toggle-button");
-const themeIcon = document.querySelector("#theme-icon");
-const themeLabel = document.querySelector("#theme-label");
+const MAX_MESSAGE_LENGTH = 2000;
+const MAX_PDF_SIZE = 15 * 1024 * 1024;
+const MESSAGE_INPUT_MAX_HEIGHT = 150;
 
-const documents = [];
+const SUGGESTION_PROMPTS = Object.freeze({
+    search:
+        "Find the important names, dates, amounts, deadlines, and terms in this document.",
+    explain:
+        "Explain the most important or complex sections of this document in simple terms.",
+});
 
-function updateCharacterCount() {
-    const currentLength = messageInput.value.length;
-    characterCount.textContent = `${currentLength} / 2000`;
+const elements = {
+    messageInput: document.querySelector("#message-input"),
+    characterCount: document.querySelector("#character-count"),
+    messageForm: document.querySelector(".message-form"),
+    sendButton: document.querySelector(".send-button"),
+    pdfInput: document.querySelector("#pdf-input"),
+    uploadBox: document.querySelector("#upload-box"),
+    uploadStatus: document.querySelector("#upload-status"),
+    uploadFileName: document.querySelector("#upload-file-name"),
+    uploadError: document.querySelector("#upload-error"),
+    documentsContainer: document.querySelector("#documents-container"),
+    documentCount: document.querySelector(".document-count"),
+    chatContent: document.querySelector("#chat-content"),
+    welcomeTemplate: document.querySelector("#welcome-template"),
+    clearChatButton: document.querySelector("#clear-chat-button"),
+    statusText: document.querySelector("#status-text"),
+    statusDot: document.querySelector(".status-dot"),
+    themeToggleButton: document.querySelector("#theme-toggle-button"),
+    themeIcon: document.querySelector("#theme-icon"),
+    themeLabel: document.querySelector("#theme-label"),
+};
+
+const state = {
+    documents: [],
+    isChatLoading: false,
+};
+
+function getActiveDocument() {
+    return state.documents[0] || null;
 }
 
-function resizeMessageInput() {
-    messageInput.style.height = "auto";
-    messageInput.style.height = `${Math.min(messageInput.scrollHeight, 150)}px`;
-}
-
-function updateSendButton() {
-    const hasMessage = messageInput.value.trim().length > 0;
-    const hasDocuments = documents.length > 0;
-    const chatIsEnabled = !messageInput.disabled;
-
-    sendButton.disabled = !(hasMessage && hasDocuments && chatIsEnabled);
+function escapeHtml(value) {
+    return String(value)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
 }
 
 function formatFileSize(bytes) {
@@ -49,255 +61,250 @@ function formatFileSize(bytes) {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+async function requestJson(url, options = {}) {
+    const response = await fetch(url, options);
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+        throw new Error(data.message || "The request could not be completed.");
+    }
+
+    return data;
+}
+
+function uploadPdf(file) {
+    const formData = new FormData();
+    formData.append("pdf", file);
+
+    return requestJson("/api/pdfs/upload", {
+        method: "POST",
+        body: formData,
+    });
+}
+
+function askPdfQuestion(documentId, question) {
+    return requestJson("/api/pdfs/ask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ documentId, question }),
+    });
+}
+
+function clearPdfConversation(documentId) {
+    return requestJson("/api/pdfs/clear-chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ documentId }),
+    });
+}
+
+function deletePdf(documentId) {
+    return requestJson(`/api/pdfs/${encodeURIComponent(documentId)}`, {
+        method: "DELETE",
+    });
+}
+
+function setApplicationStatus(status) {
+    const statuses = {
+        ready: { label: "Ready", className: "" },
+        uploading: { label: "Analyzing PDF...", className: "processing" },
+        thinking: { label: "Thinking...", className: "processing" },
+        error: { label: "Error", className: "error" },
+    };
+    const nextStatus = statuses[status] || statuses.ready;
+
+    elements.statusText.textContent = nextStatus.label;
+    elements.statusDot.classList.remove("processing", "error");
+
+    if (nextStatus.className) {
+        elements.statusDot.classList.add(nextStatus.className);
+    }
+}
+
 function showUploadError(message) {
-    uploadError.textContent = message;
-    uploadError.hidden = false;
+    elements.uploadError.textContent = message;
+    elements.uploadError.hidden = false;
 }
 
 function clearUploadError() {
-    uploadError.textContent = "";
-    uploadError.hidden = true;
+    elements.uploadError.textContent = "";
+    elements.uploadError.hidden = true;
 }
 
-function setChatEnabled(enabled) {
-    messageInput.disabled = !enabled;
+function setUploadBusy(isBusy, fileName = "") {
+    elements.uploadFileName.textContent = fileName || "Preparing document";
+    elements.uploadStatus.hidden = !isBusy;
+    elements.uploadBox.classList.toggle("is-disabled", isBusy);
+    elements.uploadBox.setAttribute("aria-disabled", String(isBusy));
+}
 
-    messageInput.placeholder = enabled
+function updateCharacterCount() {
+    const currentLength = elements.messageInput.value.length;
+    elements.characterCount.textContent =
+        `${currentLength} / ${MAX_MESSAGE_LENGTH}`;
+}
+
+function resizeMessageInput() {
+    elements.messageInput.style.height = "auto";
+    elements.messageInput.style.height =
+        `${Math.min(elements.messageInput.scrollHeight, MESSAGE_INPUT_MAX_HEIGHT)}px`;
+}
+
+function updateComposer() {
+    const hasDocument = Boolean(getActiveDocument());
+    const hasMessage = elements.messageInput.value.trim().length > 0;
+    const isEnabled = hasDocument && !state.isChatLoading;
+
+    elements.messageInput.disabled = !isEnabled;
+    elements.sendButton.disabled = !(isEnabled && hasMessage);
+    elements.clearChatButton.disabled = !hasDocument || state.isChatLoading;
+    updateCharacterCount();
+    resizeMessageInput();
+}
+
+function resetComposer() {
+    elements.messageInput.value = "";
+    elements.messageInput.placeholder = getActiveDocument()
         ? "Ask anything about your PDFs..."
         : "Upload a PDF to start asking questions...";
+    updateComposer();
+}
 
-    updateSendButton();
+function focusMessageInput() {
+    updateComposer();
+    elements.messageInput.focus();
+    const cursorPosition = elements.messageInput.value.length;
+    elements.messageInput.setSelectionRange(cursorPosition, cursorPosition);
+    elements.messageInput.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+function setChatLoading(isLoading) {
+    state.isChatLoading = isLoading;
+    elements.messageInput.placeholder = isLoading
+        ? "AI is analyzing your question..."
+        : getActiveDocument()
+            ? "Ask anything about your PDFs..."
+            : "Upload a PDF to start asking questions...";
+    updateComposer();
+}
+
+function renderWelcomeCard() {
+    elements.chatContent.classList.remove("has-messages");
+    elements.chatContent.replaceChildren(
+        elements.welcomeTemplate.content.cloneNode(true)
+    );
 }
 
 function renderDocuments() {
-    documentCount.textContent = documents.length;
+    const documentTotal = state.documents.length;
+    elements.documentCount.textContent = documentTotal;
+    elements.documentCount.setAttribute(
+        "aria-label",
+        `${documentTotal} document${documentTotal === 1 ? "" : "s"}`
+    );
 
-    if (documents.length === 0) {
-        documentsContainer.innerHTML = `
-            <div class="empty-documents" id="empty-documents">
-                <div class="empty-documents-icon">📄</div>
+    if (documentTotal === 0) {
+        elements.documentsContainer.innerHTML = `
+            <div class="empty-documents">
+                <div class="empty-documents-icon" aria-hidden="true">📄</div>
                 <p>No documents uploaded</p>
                 <span>Your PDFs will appear here.</span>
             </div>
         `;
-
-        setChatEnabled(false);
+        resetComposer();
         return;
     }
 
-    documentsContainer.innerHTML = `
-        <div class="document-list">
-            ${documents
-                .map(
-                    (document, index) => `
-                        <article class="document-item ${
-                            index === 0 ? "active" : ""
-                        }">
-                            <div class="document-icon">📄</div>
+    const documentItems = state.documents
+        .map((document, index) => {
+            const safeName = escapeHtml(document.name);
+            const pageLabel = document.pages === 1 ? "page" : "pages";
 
-                            <div class="document-info">
-                                <span
-                                    class="document-name"
-                                    title="${escapeHtml(document.name)}"
-                                >
-                                    ${escapeHtml(document.name)}
-                                </span>
+            return `
+                <article class="document-item ${index === 0 ? "active" : ""}">
+                    <div class="document-icon" aria-hidden="true">📄</div>
+                    <div class="document-info">
+                        <span class="document-name" title="${safeName}">
+                            ${safeName}
+                        </span>
+                        <span class="document-meta">
+                            ${formatFileSize(document.size)} ·
+                            ${document.pages} ${pageLabel} · Ready
+                        </span>
+                    </div>
+                    <button
+                        class="remove-document"
+                        type="button"
+                        data-document-id="${escapeHtml(document.id)}"
+                        aria-label="Remove ${safeName}"
+                    >
+                        ×
+                    </button>
+                </article>
+            `;
+        })
+        .join("");
 
-                                <span class="document-meta">
-                                    ${formatFileSize(document.size)} · ${
-                                        document.pages
-                                    } page${document.pages === 1 ? "" : "s"} · Ready
-                                </span>
-                            </div>
-
-                            <button
-                                class="remove-document"
-                                type="button"
-                                data-document-id="${document.id}"
-                                aria-label="Remove ${escapeHtml(document.name)}"
-                            >
-                                ×
-                            </button>
-                        </article>
-                    `
-                )
-                .join("")}
-        </div>
+    elements.documentsContainer.innerHTML = `
+        <div class="document-list">${documentItems}</div>
     `;
 
-    setChatEnabled(true);
-}
-
-async function removeDocument(documentId) {
-    const documentIndex = documents.findIndex(
-        (document) => document.id === documentId
-    );
-
-    if (documentIndex === -1) {
-        return;
+    if (!state.isChatLoading) {
+        elements.messageInput.placeholder = "Ask anything about your PDFs...";
     }
 
-    const document = documents[documentIndex];
-
-    const shouldRemove = window.confirm(
-        `Remove "${document.name}"?`
-    );
-
-    if (!shouldRemove) {
-        return;
-    }
-
-    try {
-        const response = await fetch(
-            `/api/pdfs/${encodeURIComponent(documentId)}`,
-            {
-                method: "DELETE",
-            }
-        );
-
-        const data = await response.json();
-
-        if (!response.ok) {
-            throw new Error(
-                data.message || "Unable to remove the PDF."
-            );
-        }
-
-        documents.splice(documentIndex, 1);
-        renderDocuments();
-
-        if (documents.length === 0) {
-            chatContent.classList.remove("has-messages");
-
-            chatContent.innerHTML = `
-                <div class="welcome-card">
-                    <div class="welcome-icon">✦</div>
-
-                    <h2>Ask anything about your PDFs</h2>
-
-                    <p>
-                        Upload a document and get summaries, explanations,
-                        important details and instant answers.
-                    </p>
-
-                    <div class="suggestion-grid">
-                        <button class="suggestion-card" type="button">
-                            <span class="suggestion-icon">✎</span>
-                            <span>
-                                <strong>Summarize</strong>
-                                Give me a concise summary
-                            </span>
-                        </button>
-
-                        <button class="suggestion-card" type="button">
-                            <span class="suggestion-icon">?</span>
-                            <span>
-                                <strong>Ask a question</strong>
-                                Find specific information
-                            </span>
-                        </button>
-
-                        <button class="suggestion-card" type="button">
-                            <span class="suggestion-icon">⌕</span>
-                            <span>
-                                <strong>Search details</strong>
-                                Find terms, dates or clauses
-                            </span>
-                        </button>
-
-                        <button class="suggestion-card" type="button">
-                            <span class="suggestion-icon">≡</span>
-                            <span>
-                                <strong>Explain</strong>
-                                Simplify complex sections
-                            </span>
-                        </button>
-                    </div>
-                </div>
-            `;
-        }
-    } catch (error) {
-        window.alert(error.message);
-    }
-}
-
-function isPdf(file) {
-    return (
-        file.type === "application/pdf" ||
-        file.name.toLowerCase().endsWith(".pdf")
-    );
-}
-
-function escapeHtml(value) {
-    return String(value)
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#039;");
+    updateComposer();
 }
 
 function ensureChatMessagesContainer() {
-    let chatMessages = document.querySelector("#chat-messages");
+    const existingContainer = document.querySelector("#chat-messages");
 
-    if (chatMessages) {
-        return chatMessages;
+    if (existingContainer) {
+        return existingContainer;
     }
 
-    const welcomeCard = document.querySelector(".welcome-card");
+    const chatMessages = document.createElement("div");
+    chatMessages.className = "chat-messages";
+    chatMessages.id = "chat-messages";
+    elements.chatContent.classList.add("has-messages");
+    elements.chatContent.replaceChildren(chatMessages);
+    return chatMessages;
+}
 
-    if (welcomeCard) {
-        welcomeCard.remove();
-    }
-
-    chatContent.classList.add("has-messages");
-
-    chatContent.innerHTML = `
-        <div class="chat-messages" id="chat-messages"></div>
-    `;
-
-    return document.querySelector("#chat-messages");
+function scrollMessageIntoView(messageElement) {
+    messageElement.scrollIntoView({ behavior: "smooth", block: "end" });
 }
 
 function addChatMessage(role, message, options = {}) {
     const chatMessages = ensureChatMessagesContainer();
     const isAi = role === "ai";
     const isSummary = options.isSummary === true;
-    const documentName = options.documentName || "document";
+    const safeDocumentName = escapeHtml(options.documentName || "document");
+    const messageElement = document.createElement("article");
 
-    const article = document.createElement("article");
-    article.className = `chat-message ${isAi ? "ai" : "user"}`;
-
-    article.innerHTML = `
-        <div class="message-avatar">
+    messageElement.className = `chat-message ${isAi ? "ai" : "user"}`;
+    messageElement.dataset.message = message;
+    messageElement.innerHTML = `
+        <div class="message-avatar" aria-hidden="true">
             ${isAi ? "AI" : "You"}
         </div>
-
         <div class="message-bubble">
-            <span class="message-label">
-                ${isAi ? "AI Assistant" : "You"}
-            </span>
-
+            <span class="message-label">${isAi ? "AI Assistant" : "You"}</span>
             <div class="message-text">${escapeHtml(message)}</div>
-
             ${
                 isAi
                     ? `
                         <div class="message-actions">
-                            <button
-                                class="copy-answer-button"
-                                type="button"
-                            >
+                            <button class="copy-answer-button" type="button">
                                 📋 Copy
                             </button>
-
                             ${
                                 isSummary
                                     ? `
                                         <button
                                             class="download-summary-button"
                                             type="button"
-                                            data-document-name="${escapeHtml(documentName)}"
+                                            data-document-name="${safeDocumentName}"
                                         >
                                             ↓ Download summary
                                         </button>
@@ -311,465 +318,294 @@ function addChatMessage(role, message, options = {}) {
         </div>
     `;
 
-    article.dataset.message = message;
-
-    chatMessages.appendChild(article);
-
-    article.scrollIntoView({
-        behavior: "smooth",
-        block: "end",
-    });
-}
-function setApplicationStatus(status) {
-    statusText.textContent = status;
-
-    statusDot.classList.remove(
-        "processing",
-        "error"
-    );
-
-    if (status === "Thinking..." || status === "Analyzing PDF...") {
-        statusDot.classList.add("processing");
-    }
-
-    if (status === "Error") {
-        statusDot.classList.add("error");
-    }
-}
-
-function setChatLoading(isLoading) {
-    messageInput.disabled = isLoading;
-
-    if (isLoading) {
-        sendButton.disabled = true;
-        messageInput.placeholder = "AI is analyzing your question...";
-        setApplicationStatus("Thinking...");
-        return;
-    }
-
-    messageInput.disabled = documents.length === 0;
-
-    messageInput.placeholder =
-        documents.length > 0
-            ? "Ask anything about your PDFs..."
-            : "Upload a PDF to start asking questions...";
-
-    setApplicationStatus("Ready");
-    updateSendButton();
+    chatMessages.appendChild(messageElement);
+    scrollMessageIntoView(messageElement);
 }
 
 function addLoadingMessage() {
     removeLoadingMessage();
-
     const chatMessages = ensureChatMessagesContainer();
+    const loadingMessage = document.createElement("article");
 
-    const article = document.createElement("article");
-    article.className = "chat-message ai";
-    article.id = "ai-loading-message";
-
-    article.innerHTML = `
-        <div class="message-avatar">AI</div>
-
+    loadingMessage.className = "chat-message ai";
+    loadingMessage.id = "ai-loading-message";
+    loadingMessage.innerHTML = `
+        <div class="message-avatar" aria-hidden="true">AI</div>
         <div class="message-bubble loading-bubble">
             <span class="message-label">AI Assistant</span>
-
             <div class="thinking-row">
                 <div class="typing-indicator" aria-label="AI is thinking">
-                    <span></span>
-                    <span></span>
-                    <span></span>
+                    <span></span><span></span><span></span>
                 </div>
-
                 <span class="thinking-text">Analyzing document...</span>
             </div>
         </div>
     `;
 
-    chatMessages.appendChild(article);
-
-    article.scrollIntoView({
-        behavior: "smooth",
-        block: "end",
-    });
+    chatMessages.appendChild(loadingMessage);
+    scrollMessageIntoView(loadingMessage);
 }
 
 function removeLoadingMessage() {
     document.querySelector("#ai-loading-message")?.remove();
 }
 
-async function processSelectedFile(file) {
-    clearUploadError();
+function isPdf(file) {
+    return (
+        file.type === "application/pdf" ||
+        file.name.toLowerCase().endsWith(".pdf")
+    );
+}
 
+function validatePdf(file) {
     if (!isPdf(file)) {
-        showUploadError("Please upload a PDF file.");
-        pdfInput.value = "";
-        return;
+        return "Please upload a PDF file.";
     }
 
-    const maximumFileSize = 15 * 1024 * 1024;
-
-    if (file.size > maximumFileSize) {
-        showUploadError("The PDF must be smaller than 15 MB.");
-        pdfInput.value = "";
-        return;
+    if (file.size > MAX_PDF_SIZE) {
+        return "The PDF must be smaller than 15 MB.";
     }
 
-    const duplicateDocument = documents.some(
-        (document) =>
-            document.name === file.name &&
-            document.size === file.size
+    const isDuplicate = state.documents.some(
+        (document) => document.name === file.name && document.size === file.size
     );
 
-    if (duplicateDocument) {
-        showUploadError("This PDF has already been added.");
-        pdfInput.value = "";
+    return isDuplicate ? "This PDF has already been added." : "";
+}
+
+async function processSelectedFile(file) {
+    clearUploadError();
+    const validationError = validatePdf(file);
+
+    if (validationError) {
+        showUploadError(validationError);
+        elements.pdfInput.value = "";
         return;
     }
 
-    uploadFileName.textContent = file.name;
-    uploadStatus.hidden = false;
-    uploadBox.style.pointerEvents = "none";
-    uploadBox.style.opacity = "0.65";
-    setApplicationStatus("Analyzing PDF...");
+    setUploadBusy(true, file.name);
+    setApplicationStatus("uploading");
 
     try {
-        const formData = new FormData();
-        formData.append("pdf", file);
-
-        const response = await fetch("/api/pdfs/upload", {
-            method: "POST",
-            body: formData,
-        });
-
-        const data = await response.json();
-
-        if (!response.ok) {
-            throw new Error(data.message || "PDF upload failed.");
-        }
-
-        documents.push({
+        const data = await uploadPdf(file);
+        state.documents.push({
             id: data.document.id,
             name: data.document.name,
             size: data.document.size,
-            storedName: data.document.storedName,
             pages: data.document.pages,
-            characters: data.document.characters,
             summary: data.document.summary,
         });
-
         renderDocuments();
-
-        addChatMessage(
-            "ai",
-            `I've analyzed ${data.document.name}.
-
-        Summary:
-
-        ${data.document.summary}`,
-            {
-                isSummary: true,
-                documentName: data.document.name,
-            }
-);
+        setApplicationStatus("ready");
+        focusMessageInput();
     } catch (error) {
         showUploadError(error.message);
-        setApplicationStatus("Error");
+        setApplicationStatus("error");
     } finally {
-        uploadStatus.hidden = true;
-        uploadBox.style.pointerEvents = "";
-        uploadBox.style.opacity = "";
-        pdfInput.value = "";
-
-        setApplicationStatus("Ready");
+        setUploadBusy(false);
+        elements.pdfInput.value = "";
     }
 }
 
-messageInput.addEventListener("input", () => {
-    updateCharacterCount();
-    resizeMessageInput();
-    updateSendButton();
-});
+async function removeDocument(documentId) {
+    const documentIndex = state.documents.findIndex(
+        (document) => document.id === documentId
+    );
 
-messageInput.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" && !event.shiftKey) {
-        event.preventDefault();
-
-        if (!sendButton.disabled) {
-            messageForm.requestSubmit();
-        }
+    if (documentIndex === -1) {
+        return;
     }
-});
 
-messageForm.addEventListener("submit", async (event) => {
+    const document = state.documents[documentIndex];
+
+    if (!window.confirm(`Remove "${document.name}"?`)) {
+        return;
+    }
+
+    try {
+        await deletePdf(documentId);
+        state.documents.splice(documentIndex, 1);
+        renderDocuments();
+
+        if (state.documents.length === 0) {
+            renderWelcomeCard();
+        }
+
+        setApplicationStatus("ready");
+    } catch (error) {
+        window.alert(error.message);
+        setApplicationStatus("error");
+    }
+}
+
+function submitSuggestedQuestion(question) {
+    elements.messageInput.value = question;
+    updateComposer();
+    elements.messageForm.requestSubmit();
+}
+
+function handleSuggestionAction(action) {
+    const activeDocument = getActiveDocument();
+
+    if (!activeDocument) {
+        showUploadError("Please upload a PDF first.");
+        return;
+    }
+
+    clearUploadError();
+
+    if (action === "summarize") {
+        addChatMessage(
+            "ai",
+            `Summary of ${activeDocument.name}:\n\n${activeDocument.summary}`,
+            { isSummary: true, documentName: activeDocument.name }
+        );
+        return;
+    }
+
+    if (action === "question") {
+        elements.messageInput.value = "";
+        elements.messageInput.placeholder =
+            "Ask a specific question about the PDF...";
+        focusMessageInput();
+        return;
+    }
+
+    if (SUGGESTION_PROMPTS[action]) {
+        submitSuggestedQuestion(SUGGESTION_PROMPTS[action]);
+    }
+}
+
+async function handleMessageSubmit(event) {
     event.preventDefault();
+    const activeDocument = getActiveDocument();
+    const question = elements.messageInput.value.trim();
 
-    const question = messageInput.value.trim();
-    const activeDocument = documents[0];
-
-    if (!question || !activeDocument) {
+    if (!activeDocument || !question || state.isChatLoading) {
         return;
     }
 
     addChatMessage("user", question);
-
-    messageInput.value = "";
-    updateCharacterCount();
-    resizeMessageInput();
-
+    elements.messageInput.value = "";
     setChatLoading(true);
+    setApplicationStatus("thinking");
     addLoadingMessage();
 
     try {
-        const response = await fetch("/api/pdfs/ask", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-                documentId: activeDocument.id,
-                question,
-            }),
-        });
-
-        const data = await response.json();
-
-        if (!response.ok) {
-            throw new Error(
-                data.message || "Unable to answer the question."
-            );
-        }
-
+        const data = await askPdfQuestion(activeDocument.id, question);
         removeLoadingMessage();
         addChatMessage("ai", data.answer);
+        setApplicationStatus("ready");
     } catch (error) {
         removeLoadingMessage();
-
         addChatMessage(
             "ai",
-            `Sorry, I couldn't answer that question.
-
-${error.message}`
+            `Sorry, I couldn't answer that question.\n\n${error.message}`
         );
-
-        setApplicationStatus("Error");
+        setApplicationStatus("error");
     } finally {
         setChatLoading(false);
-        messageInput.focus();
+        focusMessageInput();
     }
-});
+}
 
-pdfInput.addEventListener("change", () => {
-    const selectedFile = pdfInput.files[0];
+async function handleClearChat() {
+    const activeDocument = getActiveDocument();
 
-    if (selectedFile) {
-        processSelectedFile(selectedFile);
-    }
-});
-
-uploadBox.addEventListener("dragover", (event) => {
-    event.preventDefault();
-    uploadBox.classList.add("dragging");
-});
-
-uploadBox.addEventListener("dragleave", () => {
-    uploadBox.classList.remove("dragging");
-});
-
-uploadBox.addEventListener("drop", (event) => {
-    event.preventDefault();
-    uploadBox.classList.remove("dragging");
-
-    const droppedFile = event.dataTransfer.files[0];
-
-    if (droppedFile) {
-        processSelectedFile(droppedFile);
-    }
-});
-
-documentsContainer.addEventListener("click", (event) => {
-    const removeButton = event.target.closest(".remove-document");
-
-    if (!removeButton) {
+    if (
+        !activeDocument ||
+        !window.confirm("Are you sure you want to clear the conversation?")
+    ) {
         return;
     }
 
-    removeDocument(removeButton.dataset.documentId);
-});
-chatContent.addEventListener("click", async (event) => {
-    const messageArticle = event.target.closest(".chat-message");
+    elements.clearChatButton.disabled = true;
 
-    if (!messageArticle) {
-        return;
+    try {
+        await clearPdfConversation(activeDocument.id);
+        renderWelcomeCard();
+        resetComposer();
+        setApplicationStatus("ready");
+    } catch (error) {
+        window.alert(error.message);
+        setApplicationStatus("error");
+    } finally {
+        updateComposer();
+    }
+}
+
+async function copyAnswer(button, message) {
+    const defaultLabel = "📋 Copy";
+
+    try {
+        await navigator.clipboard.writeText(message);
+        button.textContent = "✓ Copied";
+    } catch (error) {
+        button.textContent = "Copy failed";
     }
 
-    const message = messageArticle.dataset.message || "";
+    window.setTimeout(() => {
+        button.textContent = defaultLabel;
+    }, 1500);
+}
 
-    const copyButton = event.target.closest(".copy-answer-button");
-
-    if (copyButton) {
-        try {
-            await navigator.clipboard.writeText(message);
-
-            copyButton.textContent = "✓ Copied";
-
-            window.setTimeout(() => {
-                copyButton.textContent = "📋 Copy";
-            }, 1500);
-        } catch (error) {
-            copyButton.textContent = "Copy failed";
-
-            window.setTimeout(() => {
-                copyButton.textContent = "📋 Copy";
-            }, 1500);
-        }
-
-        return;
-    }
-
-    const downloadButton = event.target.closest(
-        ".download-summary-button"
-    );
-
-    if (!downloadButton) {
-        return;
-    }
-
-    const originalDocumentName =
-        downloadButton.dataset.documentName || "document.pdf";
-
-    const cleanDocumentName = originalDocumentName.replace(
-        /\.pdf$/i,
-        ""
-    );
-
+function downloadSummary(button, message) {
+    const originalName = button.dataset.documentName || "document.pdf";
+    const cleanName = originalName.replace(/\.pdf$/i, "");
     const summaryFile = new Blob([message], {
         type: "text/plain;charset=utf-8",
     });
-
     const downloadUrl = URL.createObjectURL(summaryFile);
     const downloadLink = document.createElement("a");
 
     downloadLink.href = downloadUrl;
-    downloadLink.download = `${cleanDocumentName}-summary.txt`;
-
+    downloadLink.download = `${cleanName}-summary.txt`;
     document.body.appendChild(downloadLink);
     downloadLink.click();
     downloadLink.remove();
+    window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 0);
 
-    URL.revokeObjectURL(downloadUrl);
-
-    downloadButton.textContent = "✓ Downloaded";
-
+    button.textContent = "✓ Downloaded";
     window.setTimeout(() => {
-        downloadButton.textContent = "↓ Download summary";
+        button.textContent = "↓ Download summary";
     }, 1500);
-});
-clearChatButton.addEventListener("click", async () => {
-    const activeDocument = documents[0];
+}
 
-    if (!activeDocument) {
+function handleChatContentClick(event) {
+    const suggestionCard = event.target.closest(".suggestion-card");
+
+    if (suggestionCard) {
+        handleSuggestionAction(suggestionCard.dataset.action);
         return;
     }
 
-    const shouldClear = window.confirm(
-        "Are you sure you want to clear the conversation?"
-    );
+    const messageElement = event.target.closest(".chat-message");
 
-    if (!shouldClear) {
+    if (!messageElement) {
         return;
     }
 
-    clearChatButton.disabled = true;
+    const message = messageElement.dataset.message || "";
+    const copyButton = event.target.closest(".copy-answer-button");
 
-    try {
-        const response = await fetch("/api/pdfs/clear-chat", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-                documentId: activeDocument.id,
-            }),
-        });
-
-        const data = await response.json();
-
-        if (!response.ok) {
-            throw new Error(
-                data.message || "Unable to clear the conversation."
-            );
-        }
-
-        chatContent.classList.remove("has-messages");
-
-        chatContent.innerHTML = `
-            <div class="welcome-card">
-                <div class="welcome-icon">✦</div>
-
-                <h2>Ask anything about your PDFs</h2>
-
-                <p>
-                    Upload a document and get summaries, explanations,
-                    important details and instant answers.
-                </p>
-
-                <div class="suggestion-grid">
-                    <button class="suggestion-card" type="button">
-                        <span class="suggestion-icon">✎</span>
-                        <span>
-                            <strong>Summarize</strong>
-                            Give me a concise summary
-                        </span>
-                    </button>
-
-                    <button class="suggestion-card" type="button">
-                        <span class="suggestion-icon">?</span>
-                        <span>
-                            <strong>Ask a question</strong>
-                            Find specific information
-                        </span>
-                    </button>
-
-                    <button class="suggestion-card" type="button">
-                        <span class="suggestion-icon">⌕</span>
-                        <span>
-                            <strong>Search details</strong>
-                            Find terms, dates or clauses
-                        </span>
-                    </button>
-
-                    <button class="suggestion-card" type="button">
-                        <span class="suggestion-icon">≡</span>
-                        <span>
-                            <strong>Explain</strong>
-                            Simplify complex sections
-                        </span>
-                    </button>
-                </div>
-            </div>
-        `;
-    } catch (error) {
-        window.alert(error.message);
-    } finally {
-        clearChatButton.disabled = false;
+    if (copyButton) {
+        copyAnswer(copyButton, message);
+        return;
     }
-});
 
-themeToggleButton.addEventListener("click", () => {
-    const isCurrentlyDark =
-        document.body.classList.contains("dark-theme");
+    const downloadButton = event.target.closest(".download-summary-button");
 
-    applyTheme(isCurrentlyDark ? "light" : "dark");
-});
+    if (downloadButton) {
+        downloadSummary(downloadButton, message);
+    }
+}
 
 function applyTheme(theme) {
     const isDark = theme === "dark";
-
     document.body.classList.toggle("dark-theme", isDark);
-
-    themeIcon.textContent = isDark ? "☀" : "◐";
-    themeLabel.textContent = isDark ? "Light mode" : "Dark mode";
-
+    elements.themeIcon.textContent = isDark ? "☀" : "◐";
+    elements.themeLabel.textContent = isDark ? "Light mode" : "Dark mode";
+    elements.themeToggleButton.setAttribute("aria-pressed", String(isDark));
     localStorage.setItem("pdf-assistant-theme", theme);
 }
 
@@ -784,11 +620,59 @@ function loadSavedTheme() {
     const prefersDarkTheme = window.matchMedia(
         "(prefers-color-scheme: dark)"
     ).matches;
-
     applyTheme(prefersDarkTheme ? "dark" : "light");
 }
 
-updateCharacterCount();
+elements.messageInput.addEventListener("input", updateComposer);
+elements.messageInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+
+        if (!elements.sendButton.disabled) {
+            elements.messageForm.requestSubmit();
+        }
+    }
+});
+elements.messageForm.addEventListener("submit", handleMessageSubmit);
+elements.pdfInput.addEventListener("change", () => {
+    const selectedFile = elements.pdfInput.files[0];
+
+    if (selectedFile) {
+        processSelectedFile(selectedFile);
+    }
+});
+elements.uploadBox.addEventListener("dragover", (event) => {
+    event.preventDefault();
+    elements.uploadBox.classList.add("dragging");
+});
+elements.uploadBox.addEventListener("dragleave", () => {
+    elements.uploadBox.classList.remove("dragging");
+});
+elements.uploadBox.addEventListener("drop", (event) => {
+    event.preventDefault();
+    elements.uploadBox.classList.remove("dragging");
+    const droppedFile = event.dataTransfer.files[0];
+
+    if (droppedFile) {
+        processSelectedFile(droppedFile);
+    }
+});
+elements.documentsContainer.addEventListener("click", (event) => {
+    const removeButton = event.target.closest(".remove-document");
+
+    if (removeButton) {
+        removeDocument(removeButton.dataset.documentId);
+    }
+});
+elements.chatContent.addEventListener("click", handleChatContentClick);
+elements.clearChatButton.addEventListener("click", handleClearChat);
+elements.themeToggleButton.addEventListener("click", () => {
+    const nextTheme = document.body.classList.contains("dark-theme")
+        ? "light"
+        : "dark";
+    applyTheme(nextTheme);
+});
+
+renderWelcomeCard();
 renderDocuments();
-updateSendButton();
 loadSavedTheme();
