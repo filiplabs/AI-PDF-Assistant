@@ -9,6 +9,7 @@ const uploadError = document.querySelector("#upload-error");
 const documentsContainer = document.querySelector("#documents-container");
 const documentCount = document.querySelector(".document-count");
 const sendButton = document.querySelector(".send-button");
+const chatContent = document.querySelector("#chat-content");
 
 const documents = [];
 
@@ -83,16 +84,23 @@ function renderDocuments() {
             ${documents
                 .map(
                     (document, index) => `
-                        <article class="document-item ${index === 0 ? "active" : ""}">
+                        <article class="document-item ${
+                            index === 0 ? "active" : ""
+                        }">
                             <div class="document-icon">📄</div>
 
                             <div class="document-info">
-                                <span class="document-name" title="${document.name}">
-                                    ${document.name}
+                                <span
+                                    class="document-name"
+                                    title="${escapeHtml(document.name)}"
+                                >
+                                    ${escapeHtml(document.name)}
                                 </span>
 
                                 <span class="document-meta">
-                                    ${formatFileSize(document.size)} · Ready
+                                    ${formatFileSize(document.size)} · ${
+                                        document.pages
+                                    } page${document.pages === 1 ? "" : "s"} · Ready
                                 </span>
                             </div>
 
@@ -100,7 +108,7 @@ function renderDocuments() {
                                 class="remove-document"
                                 type="button"
                                 data-document-id="${document.id}"
-                                aria-label="Remove ${document.name}"
+                                aria-label="Remove ${escapeHtml(document.name)}"
                             >
                                 ×
                             </button>
@@ -132,6 +140,93 @@ function isPdf(file) {
         file.type === "application/pdf" ||
         file.name.toLowerCase().endsWith(".pdf")
     );
+}
+
+function escapeHtml(value) {
+    return String(value)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+}
+
+function ensureChatMessagesContainer() {
+    let chatMessages = document.querySelector("#chat-messages");
+
+    if (chatMessages) {
+        return chatMessages;
+    }
+
+    const welcomeCard = document.querySelector(".welcome-card");
+
+    if (welcomeCard) {
+        welcomeCard.remove();
+    }
+
+    chatContent.classList.add("has-messages");
+
+    chatContent.innerHTML = `
+        <div class="chat-messages" id="chat-messages"></div>
+    `;
+
+    return document.querySelector("#chat-messages");
+}
+
+function addChatMessage(role, message) {
+    const chatMessages = ensureChatMessagesContainer();
+    const isAi = role === "ai";
+
+    const article = document.createElement("article");
+    article.className = `chat-message ${isAi ? "ai" : "user"}`;
+
+    article.innerHTML = `
+        <div class="message-avatar">
+            ${isAi ? "AI" : "You"}
+        </div>
+
+        <div class="message-bubble">
+            <span class="message-label">
+                ${isAi ? "AI Assistant" : "You"}
+            </span>
+            <div class="message-text">${escapeHtml(message)}</div>
+        </div>
+    `;
+
+    chatMessages.appendChild(article);
+
+    article.scrollIntoView({
+        behavior: "smooth",
+        block: "end",
+    });
+}
+
+function addLoadingMessage() {
+    const chatMessages = ensureChatMessagesContainer();
+
+    const article = document.createElement("article");
+    article.className = "chat-message ai";
+    article.id = "ai-loading-message";
+
+    article.innerHTML = `
+        <div class="message-avatar">AI</div>
+
+        <div class="message-bubble">
+            <span class="message-label">AI Assistant</span>
+            <div class="message-text">Thinking...</div>
+        </div>
+    `;
+
+    chatMessages.appendChild(article);
+
+    article.scrollIntoView({
+        behavior: "smooth",
+        block: "end",
+    });
+}
+
+function removeLoadingMessage() {
+    document.querySelector("#ai-loading-message")?.remove();
 }
 
 async function processSelectedFile(file) {
@@ -177,14 +272,11 @@ async function processSelectedFile(file) {
             body: formData,
         });
 
-        
         const data = await response.json();
 
-if (!response.ok) {
-    throw new Error(data.message || "PDF upload failed.");
-}
-
-        console.log("AI summary:", data.document.summary);
+        if (!response.ok) {
+            throw new Error(data.message || "PDF upload failed.");
+        }
 
         documents.push({
             id: data.document.id,
@@ -194,8 +286,18 @@ if (!response.ok) {
             pages: data.document.pages,
             characters: data.document.characters,
             summary: data.document.summary,
-});
+        });
+
         renderDocuments();
+
+        addChatMessage(
+            "ai",
+            `I've analyzed ${data.document.name}.
+
+Summary:
+
+${data.document.summary}`
+        );
     } catch (error) {
         showUploadError(error.message);
     } finally {
@@ -222,21 +324,59 @@ messageInput.addEventListener("keydown", (event) => {
     }
 });
 
-messageForm.addEventListener("submit", (event) => {
+messageForm.addEventListener("submit", async (event) => {
     event.preventDefault();
 
-    const message = messageInput.value.trim();
+    const question = messageInput.value.trim();
+    const activeDocument = documents[0];
 
-    if (!message || documents.length === 0) {
+    if (!question || !activeDocument) {
         return;
     }
 
-    console.log("User message:", message);
+    addChatMessage("user", question);
 
     messageInput.value = "";
     updateCharacterCount();
     resizeMessageInput();
     updateSendButton();
+
+    messageInput.disabled = true;
+    sendButton.disabled = true;
+
+    addLoadingMessage();
+
+    try {
+        const response = await fetch("/api/pdfs/ask", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                documentId: activeDocument.id,
+                question,
+            }),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.message || "Unable to answer the question.");
+        }
+
+        removeLoadingMessage();
+        addChatMessage("ai", data.answer);
+    } catch (error) {
+        removeLoadingMessage();
+        addChatMessage(
+            "ai",
+            `Sorry, something went wrong: ${error.message}`
+        );
+    } finally {
+        messageInput.disabled = false;
+        updateSendButton();
+        messageInput.focus();
+    }
 });
 
 pdfInput.addEventListener("change", () => {
