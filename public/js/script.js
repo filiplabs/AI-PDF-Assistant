@@ -10,6 +10,7 @@ const documentsContainer = document.querySelector("#documents-container");
 const documentCount = document.querySelector(".document-count");
 const sendButton = document.querySelector(".send-button");
 const chatContent = document.querySelector("#chat-content");
+const clearChatButton = document.querySelector("#clear-chat-button");
 
 const documents = [];
 
@@ -189,7 +190,24 @@ function addChatMessage(role, message) {
             <span class="message-label">
                 ${isAi ? "AI Assistant" : "You"}
             </span>
+
             <div class="message-text">${escapeHtml(message)}</div>
+
+            ${
+                isAi
+                    ? `
+                        <div class="message-actions">
+                            <button
+                                class="copy-answer-button"
+                                type="button"
+                                data-answer="${escapeHtml(message)}"
+                            >
+                                📋 Copy
+                            </button>
+                        </div>
+                    `
+                    : ""
+            }
         </div>
     `;
 
@@ -213,7 +231,12 @@ function addLoadingMessage() {
 
         <div class="message-bubble">
             <span class="message-label">AI Assistant</span>
-            <div class="message-text">Thinking...</div>
+
+            <div class="typing-indicator" aria-label="AI is thinking">
+                <span></span>
+                <span></span>
+                <span></span>
+            </div>
         </div>
     `;
 
@@ -415,6 +438,97 @@ documentsContainer.addEventListener("click", (event) => {
     }
 
     removeDocument(removeButton.dataset.documentId);
+});
+chatContent.addEventListener("click", async (event) => {
+    const copyButton = event.target.closest(".copy-answer-button");
+
+    if (!copyButton) {
+        return;
+    }
+
+    const answer = copyButton.dataset.answer;
+
+    try {
+        await navigator.clipboard.writeText(answer);
+
+        const originalText = copyButton.textContent;
+        copyButton.textContent = "✓ Copied";
+
+        window.setTimeout(() => {
+            copyButton.textContent = originalText;
+        }, 1500);
+    } catch (error) {
+        copyButton.textContent = "Copy failed";
+
+        window.setTimeout(() => {
+            copyButton.textContent = "📋 Copy";
+        }, 1500);
+    }
+});
+clearChatButton.addEventListener("click", () => {
+    const chatMessages = document.querySelector("#chat-messages");
+
+    if (!chatMessages) {
+        return;
+    }
+
+    const shouldClear = window.confirm(
+        "Are you sure you want to clear the conversation?"
+    );
+
+    if (!shouldClear) {
+        return;
+    }
+
+    chatContent.classList.remove("has-messages");
+
+    chatContent.innerHTML = `
+        <div class="welcome-card">
+            <div class="welcome-icon">✦</div>
+
+            <h1>Ask anything about your PDFs</h1>
+
+            <p>
+                Upload a document and get summaries,
+                explanations, important details and
+                instant answers.
+            </p>
+
+            <div class="feature-grid">
+                <div class="feature-card">
+                    <span>🪄</span>
+                    <div>
+                        <strong>Summarize</strong>
+                        <p>Give me a concise summary</p>
+                    </div>
+                </div>
+
+                <div class="feature-card">
+                    <span>❓</span>
+                    <div>
+                        <strong>Ask a question</strong>
+                        <p>Find specific information</p>
+                    </div>
+                </div>
+
+                <div class="feature-card">
+                    <span>🔍</span>
+                    <div>
+                        <strong>Search details</strong>
+                        <p>Find terms, dates or clauses</p>
+                    </div>
+                </div>
+
+                <div class="feature-card">
+                    <span>📄</span>
+                    <div>
+                        <strong>Explain</strong>
+                        <p>Simplify complex sections</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
 });
 
 updateCharacterCount();
