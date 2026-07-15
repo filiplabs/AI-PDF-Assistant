@@ -962,3 +962,75 @@ textarea:disabled {
     color: var(--primary);
     background: #f0efff;
 }
+
+body.dark-theme {
+    --background: #0b1120;
+    --surface: #151d2e;
+    --surface-soft: #1b2538;
+    --text-primary: #f8fafc;
+    --text-secondary: #a8b3c7;
+    --border: #2a3548;
+    --shadow: 0 20px 60px rgba(0, 0, 0, 0.28);
+
+    background: var(--background);
+}
+
+body.dark-theme .chat-header {
+    border-color: var(--border);
+    background: rgba(15, 23, 42, 0.88);
+}
+
+body.dark-theme .welcome-card,
+body.dark-theme .message-form,
+body.dark-theme .suggestion-card,
+body.dark-theme .icon-button,
+body.dark-theme .chat-message.ai .message-bubble {
+    color: var(--text-primary);
+    border-color: var(--border);
+    background: var(--surface);
+}
+
+body.dark-theme .message-form textarea {
+    color: var(--text-primary);
+}
+
+body.dark-theme .message-form textarea::placeholder {
+    color: #718096;
+}
+
+body.dark-theme .suggestion-card strong {
+    color: var(--text-primary);
+}
+
+body.dark-theme .suggestion-icon {
+    color: #a99fff;
+    background: rgba(109, 93, 252, 0.18);
+}
+
+body.dark-theme .send-button:disabled {
+    color: #718096;
+    background: #263247;
+}
+
+body.dark-theme .copy-answer-button,
+body.dark-theme .download-summary-button {
+    color: var(--text-secondary);
+    border-color: var(--border);
+    background: var(--surface-soft);
+}
+
+body.dark-theme .copy-answer-button:hover,
+body.dark-theme .download-summary-button:hover {
+    color: #b8b1ff;
+    border-color: #6d5dfc;
+    background: rgba(109, 93, 252, 0.12);
+}
+
+body.dark-theme .chat-message.user .message-avatar {
+    color: #f8fafc;
+    background: #344054;
+}
+
+body.dark-theme .composer-meta {
+    color: #718096;
+}

@@ -13,6 +13,9 @@ const chatContent = document.querySelector("#chat-content");
 const clearChatButton = document.querySelector("#clear-chat-button");
 const statusText = document.querySelector("#status-text");
 const statusDot = document.querySelector(".status-dot");
+const themeToggleButton = document.querySelector("#theme-toggle-button");
+const themeIcon = document.querySelector("#theme-icon");
+const themeLabel = document.querySelector("#theme-label");
 
 const documents = [];
 
@@ -752,6 +755,40 @@ clearChatButton.addEventListener("click", async () => {
     }
 });
 
+themeToggleButton.addEventListener("click", () => {
+    const isCurrentlyDark =
+        document.body.classList.contains("dark-theme");
+
+    applyTheme(isCurrentlyDark ? "light" : "dark");
+});
+
+function applyTheme(theme) {
+    const isDark = theme === "dark";
+
+    document.body.classList.toggle("dark-theme", isDark);
+
+    themeIcon.textContent = isDark ? "☀" : "◐";
+    themeLabel.textContent = isDark ? "Light mode" : "Dark mode";
+
+    localStorage.setItem("pdf-assistant-theme", theme);
+}
+
+function loadSavedTheme() {
+    const savedTheme = localStorage.getItem("pdf-assistant-theme");
+
+    if (savedTheme === "dark" || savedTheme === "light") {
+        applyTheme(savedTheme);
+        return;
+    }
+
+    const prefersDarkTheme = window.matchMedia(
+        "(prefers-color-scheme: dark)"
+    ).matches;
+
+    applyTheme(prefersDarkTheme ? "dark" : "light");
+}
+
 updateCharacterCount();
 renderDocuments();
 updateSendButton();
+loadSavedTheme();
