@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>AI PDF Assistant</title>
+
+    <link rel="stylesheet" href="./css/style.css">
+</head>
+<body>
+    <div class="app">
+        <aside class="sidebar">
+            <div class="brand">
+                <div class="brand-icon">AI</div>
+
+                <div>
+                    <h1>PDF Assistant</h1>
+                    <p>Chat with your documents</p>
+                </div>
+            </div>
+
+            <button class="new-chat-button" type="button">
+                <span>+</span>
+                New conversation
+            </button>
+
+            <section class="sidebar-section">
+                <div class="section-heading">
+                    <span>Documents</span>
+                    <span class="document-count">0</span>
+                </div>
+
+                <label class="upload-box" for="pdf-input">
+                    <div class="upload-icon">↑</div>
+                    <strong>Upload PDF</strong>
+                    <span>Drag and drop or choose a file</span>
+
+                    <input
+                        id="pdf-input"
+                        type="file"
+                        accept="application/pdf"
+                        hidden
+                    >
+                </label>
+
+                <div class="empty-documents">
+                    <div class="empty-documents-icon">📄</div>
+                    <p>No documents uploaded</p>
+                    <span>Your PDFs will appear here.</span>
+                </div>
+            </section>
+
+            <div class="sidebar-footer">
+                <button class="sidebar-action" type="button">
+                    <span>◐</span>
+                    Dark mode
+                </button>
+
+                <button class="sidebar-action danger" type="button">
+                    <span>⌫</span>
+                    Clear chat
+                </button>
+            </div>
+        </aside>
+
+        <main class="chat-area">
+            <header class="chat-header">
+                <div>
+                    <span class="status-dot"></span>
+                    <span class="status-text">Ready</span>
+                </div>
+
+                <div class="header-actions">
+                    <button class="icon-button" type="button" aria-label="Search">
+                        ⌕
+                    </button>
+
+                    <button class="icon-button" type="button" aria-label="More options">
+                        ⋯
+                    </button>
+                </div>
+            </header>
+
+            <section class="chat-content">
+                <div class="welcome-card">
+                    <div class="welcome-icon">✦</div>
+
+                    <h2>Ask anything about your PDFs</h2>
+
+                    <p>
+                        Upload a document and get summaries, explanations,
+                        important details and instant answers.
+                    </p>
+
+                    <div class="suggestion-grid">
+                        <button class="suggestion-card" type="button">
+                            <span class="suggestion-icon">✎</span>
+
+                            <span>
+                                <strong>Summarize</strong>
+                                Give me a concise summary
+                            </span>
+                        </button>
+
+                        <button class="suggestion-card" type="button">
+                            <span class="suggestion-icon">?</span>
+
+                            <span>
+                                <strong>Ask a question</strong>
+                                Find specific information
+                            </span>
+                        </button>
+
+                        <button class="suggestion-card" type="button">
+                            <span class="suggestion-icon">⌕</span>
+
+                            <span>
+                                <strong>Search details</strong>
+                                Find terms, dates or clauses
+                            </span>
+                        </button>
+
+                        <button class="suggestion-card" type="button">
+                            <span class="suggestion-icon">≡</span>
+
+                            <span>
+                                <strong>Explain</strong>
+                                Simplify complex sections
+                            </span>
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <footer class="chat-composer">
+                <form class="message-form">
+                    <textarea
+                        id="message-input"
+                        rows="1"
+                        maxlength="2000"
+                        placeholder="Upload a PDF to start asking questions..."
+                        disabled
+                    ></textarea>
+
+                    <button
+                        class="send-button"
+                        type="submit"
+                        aria-label="Send message"
+                        disabled
+                    >
+                        ↑
+                    </button>
+                </form>
+
+                <div class="composer-meta">
+                    <span>AI can make mistakes. Verify important information.</span>
+                    <span id="character-count">0 / 2000</span>
+                </div>
+            </footer>
+        </main>
+    </div>
+
+    <script src="./js/script.js"></script>
+</body>
+</html>
