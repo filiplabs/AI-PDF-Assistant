@@ -939,3 +939,26 @@ textarea:disabled {
         opacity: 0.45;
     }
 }
+.download-summary-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 10px;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    background: var(--surface-soft);
+    transition:
+        border 160ms ease,
+        color 160ms ease,
+        background 160ms ease;
+}
+
+.download-summary-button:hover {
+    border-color: #c7d7fe;
+    color: var(--primary);
+    background: #f0efff;
+}

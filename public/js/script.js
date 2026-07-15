@@ -256,9 +256,11 @@ function ensureChatMessagesContainer() {
     return document.querySelector("#chat-messages");
 }
 
-function addChatMessage(role, message) {
+function addChatMessage(role, message, options = {}) {
     const chatMessages = ensureChatMessagesContainer();
     const isAi = role === "ai";
+    const isSummary = options.isSummary === true;
+    const documentName = options.documentName || "document";
 
     const article = document.createElement("article");
     article.className = `chat-message ${isAi ? "ai" : "user"}`;
@@ -282,16 +284,31 @@ function addChatMessage(role, message) {
                             <button
                                 class="copy-answer-button"
                                 type="button"
-                                data-answer="${escapeHtml(message)}"
                             >
                                 📋 Copy
                             </button>
+
+                            ${
+                                isSummary
+                                    ? `
+                                        <button
+                                            class="download-summary-button"
+                                            type="button"
+                                            data-document-name="${escapeHtml(documentName)}"
+                                        >
+                                            ↓ Download summary
+                                        </button>
+                                    `
+                                    : ""
+                            }
                         </div>
                     `
                     : ""
             }
         </div>
     `;
+
+    article.dataset.message = message;
 
     chatMessages.appendChild(article);
 
@@ -443,10 +460,14 @@ async function processSelectedFile(file) {
             "ai",
             `I've analyzed ${data.document.name}.
 
-Summary:
+        Summary:
 
-${data.document.summary}`
-        );
+        ${data.document.summary}`,
+            {
+                isSummary: true,
+                documentName: data.document.name,
+            }
+);
     } catch (error) {
         showUploadError(error.message);
         setApplicationStatus("Error");
@@ -572,30 +593,73 @@ documentsContainer.addEventListener("click", (event) => {
     removeDocument(removeButton.dataset.documentId);
 });
 chatContent.addEventListener("click", async (event) => {
-    const copyButton = event.target.closest(".copy-answer-button");
+    const messageArticle = event.target.closest(".chat-message");
 
-    if (!copyButton) {
+    if (!messageArticle) {
         return;
     }
 
-    const answer = copyButton.dataset.answer;
+    const message = messageArticle.dataset.message || "";
 
-    try {
-        await navigator.clipboard.writeText(answer);
+    const copyButton = event.target.closest(".copy-answer-button");
 
-        const originalText = copyButton.textContent;
-        copyButton.textContent = "✓ Copied";
+    if (copyButton) {
+        try {
+            await navigator.clipboard.writeText(message);
 
-        window.setTimeout(() => {
-            copyButton.textContent = originalText;
-        }, 1500);
-    } catch (error) {
-        copyButton.textContent = "Copy failed";
+            copyButton.textContent = "✓ Copied";
 
-        window.setTimeout(() => {
-            copyButton.textContent = "📋 Copy";
-        }, 1500);
+            window.setTimeout(() => {
+                copyButton.textContent = "📋 Copy";
+            }, 1500);
+        } catch (error) {
+            copyButton.textContent = "Copy failed";
+
+            window.setTimeout(() => {
+                copyButton.textContent = "📋 Copy";
+            }, 1500);
+        }
+
+        return;
     }
+
+    const downloadButton = event.target.closest(
+        ".download-summary-button"
+    );
+
+    if (!downloadButton) {
+        return;
+    }
+
+    const originalDocumentName =
+        downloadButton.dataset.documentName || "document.pdf";
+
+    const cleanDocumentName = originalDocumentName.replace(
+        /\.pdf$/i,
+        ""
+    );
+
+    const summaryFile = new Blob([message], {
+        type: "text/plain;charset=utf-8",
+    });
+
+    const downloadUrl = URL.createObjectURL(summaryFile);
+    const downloadLink = document.createElement("a");
+
+    downloadLink.href = downloadUrl;
+    downloadLink.download = `${cleanDocumentName}-summary.txt`;
+
+    document.body.appendChild(downloadLink);
+    downloadLink.click();
+    downloadLink.remove();
+
+    URL.revokeObjectURL(downloadUrl);
+
+    downloadButton.textContent = "✓ Downloaded";
+
+    window.setTimeout(() => {
+        downloadButton.textContent = "↓ Download summary";
+    }, 1500);
 });
 clearChatButton.addEventListener("click", async () => {
     const activeDocument = documents[0];
