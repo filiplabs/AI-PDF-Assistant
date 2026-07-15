@@ -11,9 +11,20 @@ function getDocument(documentId) {
 function deleteDocument(documentId) {
     return documents.delete(documentId);
 }
+function clearDocumentHistory(documentId) {
+    const document = documents.get(documentId);
+
+    if (!document) {
+        return false;
+    }
+
+    document.history = [];
+    return true;
+}
 
 module.exports = {
     saveDocument,
     getDocument,
     deleteDocument,
+    clearDocumentHistory,
 };

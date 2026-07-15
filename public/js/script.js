@@ -123,7 +123,7 @@ function renderDocuments() {
     setChatEnabled(true);
 }
 
-function removeDocument(documentId) {
+async function removeDocument(documentId) {
     const documentIndex = documents.findIndex(
         (document) => document.id === documentId
     );
@@ -132,8 +132,88 @@ function removeDocument(documentId) {
         return;
     }
 
-    documents.splice(documentIndex, 1);
-    renderDocuments();
+    const document = documents[documentIndex];
+
+    const shouldRemove = window.confirm(
+        `Remove "${document.name}"?`
+    );
+
+    if (!shouldRemove) {
+        return;
+    }
+
+    try {
+        const response = await fetch(
+            `/api/pdfs/${encodeURIComponent(documentId)}`,
+            {
+                method: "DELETE",
+            }
+        );
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(
+                data.message || "Unable to remove the PDF."
+            );
+        }
+
+        documents.splice(documentIndex, 1);
+        renderDocuments();
+
+        if (documents.length === 0) {
+            chatContent.classList.remove("has-messages");
+
+            chatContent.innerHTML = `
+                <div class="welcome-card">
+                    <div class="welcome-icon">✦</div>
+
+                    <h2>Ask anything about your PDFs</h2>
+
+                    <p>
+                        Upload a document and get summaries, explanations,
+                        important details and instant answers.
+                    </p>
+
+                    <div class="suggestion-grid">
+                        <button class="suggestion-card" type="button">
+                            <span class="suggestion-icon">✎</span>
+                            <span>
+                                <strong>Summarize</strong>
+                                Give me a concise summary
+                            </span>
+                        </button>
+
+                        <button class="suggestion-card" type="button">
+                            <span class="suggestion-icon">?</span>
+                            <span>
+                                <strong>Ask a question</strong>
+                                Find specific information
+                            </span>
+                        </button>
+
+                        <button class="suggestion-card" type="button">
+                            <span class="suggestion-icon">⌕</span>
+                            <span>
+                                <strong>Search details</strong>
+                                Find terms, dates or clauses
+                            </span>
+                        </button>
+
+                        <button class="suggestion-card" type="button">
+                            <span class="suggestion-icon">≡</span>
+                            <span>
+                                <strong>Explain</strong>
+                                Simplify complex sections
+                            </span>
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+    } catch (error) {
+        window.alert(error.message);
+    }
 }
 
 function isPdf(file) {
@@ -465,10 +545,10 @@ chatContent.addEventListener("click", async (event) => {
         }, 1500);
     }
 });
-clearChatButton.addEventListener("click", () => {
-    const chatMessages = document.querySelector("#chat-messages");
+clearChatButton.addEventListener("click", async () => {
+    const activeDocument = documents[0];
 
-    if (!chatMessages) {
+    if (!activeDocument) {
         return;
     }
 
@@ -480,55 +560,80 @@ clearChatButton.addEventListener("click", () => {
         return;
     }
 
-    chatContent.classList.remove("has-messages");
+    clearChatButton.disabled = true;
 
-    chatContent.innerHTML = `
-        <div class="welcome-card">
-            <div class="welcome-icon">✦</div>
+    try {
+        const response = await fetch("/api/pdfs/clear-chat", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                documentId: activeDocument.id,
+            }),
+        });
 
-            <h1>Ask anything about your PDFs</h1>
+        const data = await response.json();
 
-            <p>
-                Upload a document and get summaries,
-                explanations, important details and
-                instant answers.
-            </p>
+        if (!response.ok) {
+            throw new Error(
+                data.message || "Unable to clear the conversation."
+            );
+        }
 
-            <div class="feature-grid">
-                <div class="feature-card">
-                    <span>🪄</span>
-                    <div>
-                        <strong>Summarize</strong>
-                        <p>Give me a concise summary</p>
-                    </div>
-                </div>
+        chatContent.classList.remove("has-messages");
 
-                <div class="feature-card">
-                    <span>❓</span>
-                    <div>
-                        <strong>Ask a question</strong>
-                        <p>Find specific information</p>
-                    </div>
-                </div>
+        chatContent.innerHTML = `
+            <div class="welcome-card">
+                <div class="welcome-icon">✦</div>
 
-                <div class="feature-card">
-                    <span>🔍</span>
-                    <div>
-                        <strong>Search details</strong>
-                        <p>Find terms, dates or clauses</p>
-                    </div>
-                </div>
+                <h2>Ask anything about your PDFs</h2>
 
-                <div class="feature-card">
-                    <span>📄</span>
-                    <div>
-                        <strong>Explain</strong>
-                        <p>Simplify complex sections</p>
-                    </div>
+                <p>
+                    Upload a document and get summaries, explanations,
+                    important details and instant answers.
+                </p>
+
+                <div class="suggestion-grid">
+                    <button class="suggestion-card" type="button">
+                        <span class="suggestion-icon">✎</span>
+                        <span>
+                            <strong>Summarize</strong>
+                            Give me a concise summary
+                        </span>
+                    </button>
+
+                    <button class="suggestion-card" type="button">
+                        <span class="suggestion-icon">?</span>
+                        <span>
+                            <strong>Ask a question</strong>
+                            Find specific information
+                        </span>
+                    </button>
+
+                    <button class="suggestion-card" type="button">
+                        <span class="suggestion-icon">⌕</span>
+                        <span>
+                            <strong>Search details</strong>
+                            Find terms, dates or clauses
+                        </span>
+                    </button>
+
+                    <button class="suggestion-card" type="button">
+                        <span class="suggestion-icon">≡</span>
+                        <span>
+                            <strong>Explain</strong>
+                            Simplify complex sections
+                        </span>
+                    </button>
                 </div>
             </div>
-        </div>
-    `;
+        `;
+    } catch (error) {
+        window.alert(error.message);
+    } finally {
+        clearChatButton.disabled = false;
+    }
 });
 
 updateCharacterCount();

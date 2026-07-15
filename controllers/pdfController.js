@@ -1,4 +1,5 @@
 const path = require("path");
+const fs = require("fs/promises");
 
 const { extractPdfText } = require("../services/pdfService");
 const {
@@ -9,7 +10,10 @@ const {
 const {
     saveDocument,
     getDocument,
+    deleteDocument,
+    clearDocumentHistory,
 } = require("../services/documentStore");
+
 
 async function uploadPdf(req, res, next) {
     try {
@@ -118,8 +122,72 @@ async function askPdf(req, res, next) {
         next(error);
     }
 }
+function clearPdfChat(req, res) {
+    const { documentId } = req.body;
+
+    if (!documentId) {
+        return res.status(400).json({
+            success: false,
+            message: "Document ID is required.",
+        });
+    }
+
+    const cleared = clearDocumentHistory(documentId);
+
+    if (!cleared) {
+        return res.status(404).json({
+            success: false,
+            message: "Document not found.",
+        });
+    }
+
+    return res.json({
+        success: true,
+        message: "Conversation history cleared.",
+    });
+}
+async function removePdf(req, res, next) {
+    try {
+        const { documentId } = req.params;
+
+        const document = getDocument(documentId);
+
+        if (!document) {
+            return res.status(404).json({
+                success: false,
+                message: "Document not found.",
+            });
+        }
+
+        const filePath = path.resolve(
+            __dirname,
+            "..",
+            "uploads",
+            document.storedName
+        );
+
+        try {
+            await fs.unlink(filePath);
+        } catch (error) {
+            if (error.code !== "ENOENT") {
+                throw error;
+            }
+        }
+
+        deleteDocument(documentId);
+
+        return res.json({
+            success: true,
+            message: "PDF deleted successfully.",
+        });
+    } catch (error) {
+        next(error);
+    }
+}
 
 module.exports = {
     uploadPdf,
     askPdf,
+    clearPdfChat,
+    removePdf,
 };
