@@ -1,24 +1,28 @@
 const multer = require("multer");
 const path = require("path");
 
+const {
+    PDF_MIME_TYPE,
+    PDF_FILE_EXTENSION,
+    MAX_PDF_FILE_SIZE,
+    UPLOAD_DIRECTORY,
+    createStoredPdfFilename,
+} = require("../config/uploadConfig");
+
 const storage = multer.diskStorage({
-    destination: (req, file, callback) => {
-        callback(null, "uploads/");
+    destination: (_request, _file, callback) => {
+        callback(null, UPLOAD_DIRECTORY);
     },
 
-    filename: (req, file, callback) => {
-        const uniqueName = `${Date.now()}-${Math.round(
-            Math.random() * 1e9
-        )}${path.extname(file.originalname)}`;
-
-        callback(null, uniqueName);
+    filename: (_request, _file, callback) => {
+        callback(null, createStoredPdfFilename());
     },
 });
 
-const fileFilter = (req, file, callback) => {
+const fileFilter = (_request, file, callback) => {
     const isPdf =
-        file.mimetype === "application/pdf" &&
-        path.extname(file.originalname).toLowerCase() === ".pdf";
+        file.mimetype === PDF_MIME_TYPE &&
+        path.extname(file.originalname).toLowerCase() === PDF_FILE_EXTENSION;
 
     if (!isPdf) {
         return callback(new Error("Please upload a PDF file."));
@@ -31,7 +35,7 @@ const upload = multer({
     storage,
     fileFilter,
     limits: {
-        fileSize: 15 * 1024 * 1024,
+        fileSize: MAX_PDF_FILE_SIZE,
     },
 });
 

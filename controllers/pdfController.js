@@ -1,100 +1,113 @@
-const path = require("path");
-const fs = require("fs/promises");
-
-const { extractPdfText } = require("../services/pdfService");
 const {
     summarizeDocument,
     answerDocumentQuestion,
 } = require("../services/aiService");
-
 const {
     saveDocument,
     getDocument,
     deleteDocument,
+    appendDocumentHistory,
     clearDocumentHistory,
 } = require("../services/documentStore");
+const {
+    cleanUpUploadedFile,
+    deleteStoredDocumentFile,
+} = require("../services/fileService");
+const { extractPdfText } = require("../services/pdfService");
+const { sendErrorResponse } = require("../utils/httpResponse");
 
+function isNonEmptyString(value) {
+    return typeof value === "string" && value.trim().length > 0;
+}
 
-async function uploadPdf(req, res, next) {
+function createDocumentRecord(uploadedFile, pdfData, summary) {
+    return {
+        id: uploadedFile.filename,
+        name: uploadedFile.originalname,
+        storedName: uploadedFile.filename,
+        size: uploadedFile.size,
+        pages: pdfData.pages,
+        characters: pdfData.text.length,
+        text: pdfData.text,
+        summary,
+        history: [],
+    };
+}
+
+function serializeDocument(document) {
+    return {
+        id: document.id,
+        name: document.name,
+        storedName: document.storedName,
+        size: document.size,
+        pages: document.pages,
+        characters: document.characters,
+        summary: document.summary,
+    };
+}
+
+async function uploadPdf(request, response, next) {
+    const uploadedFile = request.file;
+
+    if (!uploadedFile) {
+        return sendErrorResponse(response, 400, "No PDF file was uploaded.");
+    }
+
     try {
-        if (!req.file) {
-            return res.status(400).json({
-                success: false,
-                message: "No PDF file was uploaded.",
-            });
-        }
+        const pdfData = await extractPdfText(uploadedFile.path);
 
-        const filePath = path.resolve(req.file.path);
-        const pdfData = await extractPdfText(filePath);
-
-        if (!pdfData.text || !pdfData.text.trim()) {
-            return res.status(422).json({
-                success: false,
-                message:
-                    "This PDF appears to be scanned. OCR support is coming soon.",
-            });
+        if (!isNonEmptyString(pdfData.text)) {
+            await cleanUpUploadedFile(uploadedFile.path);
+            return sendErrorResponse(
+                response,
+                422,
+                "This PDF appears to be scanned. OCR support is coming soon."
+            );
         }
 
         const summary = await summarizeDocument(pdfData.text);
-
-        const document = {
-            id: req.file.filename,
-            name: req.file.originalname,
-            storedName: req.file.filename,
-            size: req.file.size,
-            pages: pdfData.pages,
-            characters: pdfData.text.length,
-            text: pdfData.text,
-            summary,
-            history: [],
-        };
-
+        const document = createDocumentRecord(uploadedFile, pdfData, summary);
         saveDocument(document);
 
-        return res.status(201).json({
+        return response.status(201).json({
             success: true,
             message: "PDF uploaded and analyzed successfully.",
-            document: {
-                id: document.id,
-                name: document.name,
-                storedName: document.storedName,
-                size: document.size,
-                pages: document.pages,
-                characters: document.characters,
-                summary: document.summary,
-            },
+            document: serializeDocument(document),
         });
     } catch (error) {
-        next(error);
+        await cleanUpUploadedFile(uploadedFile.path);
+        return next(error);
     }
 }
 
-async function askPdf(req, res, next) {
+async function askPdf(request, response, next) {
     try {
-        const { documentId, question } = req.body;
+        const { documentId, question } = request.body || {};
 
-        if (!documentId) {
-            return res.status(400).json({
-                success: false,
-                message: "Document ID is required.",
-            });
+        if (!isNonEmptyString(documentId)) {
+            return sendErrorResponse(
+                response,
+                400,
+                "Document ID is required."
+            );
         }
 
-        if (!question || !question.trim()) {
-            return res.status(400).json({
-                success: false,
-                message: "Please enter a question.",
-            });
+        if (!isNonEmptyString(question)) {
+            return sendErrorResponse(
+                response,
+                400,
+                "Please enter a question."
+            );
         }
 
         const document = getDocument(documentId);
 
         if (!document) {
-            return res.status(404).json({
-                success: false,
-                message:
-                    "Document not found. Please upload the PDF again.",
-            });
+            return sendErrorResponse(
+                response,
+                404,
+                "Document not found. Please upload the PDF again."
+            );
         }
 
         const answer = await answerDocumentQuestion(
@@ -103,85 +116,56 @@ async function askPdf(req, res, next) {
             document.history
         );
 
-        document.history.push(
-            {
-                role: "user",
-                content: question,
-            },
-            {
-                role: "assistant",
-                content: answer,
-            }
+        appendDocumentHistory(
+            documentId,
+            { role: "user", content: question },
+            { role: "assistant", content: answer }
         );
 
-        return res.json({
+        return response.json({
             success: true,
             answer,
         });
     } catch (error) {
-        next(error);
+        return next(error);
     }
 }
-function clearPdfChat(req, res) {
-    const { documentId } = req.body;
 
-    if (!documentId) {
-        return res.status(400).json({
-            success: false,
-            message: "Document ID is required.",
-        });
+function clearPdfChat(request, response) {
+    const { documentId } = request.body || {};
+
+    if (!isNonEmptyString(documentId)) {
+        return sendErrorResponse(response, 400, "Document ID is required.");
     }
 
-    const cleared = clearDocumentHistory(documentId);
-
-    if (!cleared) {
-        return res.status(404).json({
-            success: false,
-            message: "Document not found.",
-        });
+    if (!clearDocumentHistory(documentId)) {
+        return sendErrorResponse(response, 404, "Document not found.");
     }
 
-    return res.json({
+    return response.json({
         success: true,
         message: "Conversation history cleared.",
     });
 }
-async function removePdf(req, res, next) {
-    try {
-        const { documentId } = req.params;
 
+async function removePdf(request, response, next) {
+    try {
+        const { documentId } = request.params;
         const document = getDocument(documentId);
 
         if (!document) {
-            return res.status(404).json({
-                success: false,
-                message: "Document not found.",
-            });
+            return sendErrorResponse(response, 404, "Document not found.");
         }
 
-        const filePath = path.resolve(
-            __dirname,
-            "..",
-            "uploads",
-            document.storedName
-        );
-
-        try {
-            await fs.unlink(filePath);
-        } catch (error) {
-            if (error.code !== "ENOENT") {
-                throw error;
-            }
-        }
-
+        await deleteStoredDocumentFile(document.storedName);
         deleteDocument(documentId);
 
-        return res.json({
+        return response.json({
             success: true,
             message: "PDF deleted successfully.",
         });
     } catch (error) {
-        next(error);
+        return next(error);
     }
 }
 
