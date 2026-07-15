@@ -31,7 +31,7 @@
                     <span class="document-count">0</span>
                 </div>
 
-                <label class="upload-box" for="pdf-input">
+                <label class="upload-box" id="upload-box" for="pdf-input">
                     <div class="upload-icon">↑</div>
                     <strong>Upload PDF</strong>
                     <span>Drag and drop or choose a file</span>
@@ -44,11 +44,23 @@
                     >
                 </label>
 
-                <div class="empty-documents">
-                    <div class="empty-documents-icon">📄</div>
-                    <p>No documents uploaded</p>
-                    <span>Your PDFs will appear here.</span>
+                <div id="documents-container">
+                    <div class="empty-documents" id="empty-documents">
+                         <div class="empty-documents-icon">📄</div>
+                         <p>No documents uploaded</p>
+                        <span>Your PDFs will appear here.</span>
+                    </div>
                 </div>
+
+                <div class="upload-status" id="upload-status" hidden>
+                     <div class="spinner"></div>
+                <div>
+                    <strong>Analyzing PDF...</strong>
+                    <span id="upload-file-name">Preparing document</span>
+                </div>
+            </div>
+
+<p class="upload-error" id="upload-error" hidden></p>
             </section>
 
             <div class="sidebar-footer">
