@@ -14,6 +14,7 @@ function createTestDocument() {
     return {
         id: `${randomUUID()}.pdf`,
         history: [],
+        summary: "Cached summary",
     };
 }
 
@@ -44,6 +45,7 @@ test("retains only the six history entries used by the AI service", () => {
 
     assert.equal(clearDocumentHistory(document.id), true);
     assert.deepEqual(document.history, []);
+    assert.equal(document.summary, "Cached summary");
     deleteDocument(document.id);
 });
 

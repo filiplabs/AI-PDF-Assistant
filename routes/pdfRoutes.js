@@ -3,6 +3,7 @@ const express = require("express");
 const upload = require("../middleware/upload");
 const {
     uploadPdf,
+    summarizePdf,
     askPdf,
     clearPdfChat,
     removePdf,
@@ -11,6 +12,7 @@ const {
 const router = express.Router();
 
 router.post("/upload", upload.single("pdf"), uploadPdf);
+router.post("/summary", summarizePdf);
 router.post("/ask", askPdf);
 router.post("/clear-chat", clearPdfChat);
 router.delete("/:documentId", removePdf);

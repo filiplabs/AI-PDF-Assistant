@@ -17,6 +17,7 @@ const elements = {
     pdfInput: document.querySelector("#pdf-input"),
     uploadBox: document.querySelector("#upload-box"),
     uploadStatus: document.querySelector("#upload-status"),
+    uploadStage: document.querySelector("#upload-stage"),
     uploadFileName: document.querySelector("#upload-file-name"),
     uploadError: document.querySelector("#upload-error"),
     documentsContainer: document.querySelector("#documents-container"),
@@ -34,8 +35,9 @@ const elements = {
 const state = {
     documents: [],
     activeDocumentId: null,
-    pendingDocumentIds: new Set(),
+    pendingOperations: new Map(),
     isUploading: false,
+    uploadPhase: null,
 };
 
 function getDocumentById(documentId) {
@@ -47,7 +49,11 @@ function getActiveDocument() {
 }
 
 function isDocumentPending(documentId) {
-    return state.pendingDocumentIds.has(documentId);
+    return state.pendingOperations.has(documentId);
+}
+
+function getDocumentOperation(documentId) {
+    return state.pendingOperations.get(documentId) || null;
 }
 
 function escapeHtml(value) {
@@ -82,13 +88,41 @@ async function requestJson(url, options = {}) {
     return data;
 }
 
-function uploadPdf(file) {
+function uploadPdf(file, onUploadComplete) {
     const formData = new FormData();
     formData.append("pdf", file);
 
-    return requestJson("/api/pdfs/upload", {
+    return new Promise((resolve, reject) => {
+        const request = new XMLHttpRequest();
+        request.open("POST", "/api/pdfs/upload");
+        request.responseType = "json";
+        request.upload.addEventListener("load", onUploadComplete, { once: true });
+        request.addEventListener("load", () => {
+            const data = request.response || {};
+
+            if (request.status >= 200 && request.status < 300) {
+                resolve(data);
+                return;
+            }
+
+            reject(
+                new Error(
+                    data.message || "The request could not be completed."
+                )
+            );
+        });
+        request.addEventListener("error", () => {
+            reject(new Error("The request could not be completed."));
+        });
+        request.send(formData);
+    });
+}
+
+function requestPdfSummary(documentId) {
+    return requestJson("/api/pdfs/summary", {
         method: "POST",
-        body: formData,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ documentId }),
     });
 }
 
@@ -129,8 +163,13 @@ function createFrontendDocument(documentData) {
 function setApplicationStatus(status) {
     const statuses = {
         ready: { label: "Ready", className: "" },
-        uploading: { label: "Analyzing PDF...", className: "processing" },
-        thinking: { label: "Thinking...", className: "processing" },
+        uploading: { label: "Uploading...", className: "processing" },
+        extracting: { label: "Extracting...", className: "processing" },
+        question: { label: "Thinking...", className: "processing" },
+        summary: {
+            label: "Generating summary...",
+            className: "processing",
+        },
         error: { label: "Error", className: "error" },
     };
     const nextStatus = statuses[status] || statuses.ready;
@@ -145,15 +184,13 @@ function setApplicationStatus(status) {
 
 function syncApplicationStatus() {
     if (state.isUploading) {
-        setApplicationStatus("uploading");
+        setApplicationStatus(state.uploadPhase || "uploading");
         return;
     }
 
     const activeDocument = getActiveDocument();
     setApplicationStatus(
-        activeDocument && isDocumentPending(activeDocument.id)
-            ? "thinking"
-            : "ready"
+        activeDocument ? getDocumentOperation(activeDocument.id) : "ready"
     );
 }
 
@@ -167,7 +204,8 @@ function clearUploadError() {
     elements.uploadError.hidden = true;
 }
 
-function setUploadBusy(isBusy, fileName = "") {
+function setUploadBusy(isBusy, fileName = "", stage = "Uploading...") {
+    elements.uploadStage.textContent = stage;
     elements.uploadFileName.textContent = fileName || "Preparing document";
     elements.uploadStatus.hidden = !isBusy;
     elements.uploadBox.classList.toggle("is-disabled", isBusy);
@@ -205,7 +243,9 @@ function loadActiveDocumentDraft() {
     elements.messageInput.value = activeDocument?.draft || "";
     elements.messageInput.placeholder = activeDocument
         ? isDocumentPending(activeDocument.id)
-            ? "AI is analyzing your question..."
+            ? getDocumentOperation(activeDocument.id) === "summary"
+                ? "AI is generating the summary..."
+                : "AI is analyzing your question..."
             : "Ask anything about this PDF..."
         : "Upload a PDF to start asking questions...";
     updateComposer();
@@ -254,7 +294,8 @@ function renderDocuments() {
     const documentItems = state.documents
         .map((document) => {
             const isActive = document.id === state.activeDocumentId;
-            const isPending = isDocumentPending(document.id);
+            const pendingOperation = getDocumentOperation(document.id);
+            const isPending = Boolean(pendingOperation);
             const safeName = escapeHtml(document.name);
             const pageLabel = document.pages === 1 ? "page" : "pages";
 
@@ -275,7 +316,13 @@ function renderDocuments() {
                             <span class="document-meta">
                                 ${formatFileSize(document.size)} ·
                                 ${document.pages} ${pageLabel} ·
-                                ${isPending ? "Thinking..." : "Ready"}
+                                ${
+                                    pendingOperation === "summary"
+                                        ? "Generating summary..."
+                                        : pendingOperation === "question"
+                                            ? "Thinking..."
+                                            : "Ready"
+                                }
                             </span>
                         </span>
                     </button>
@@ -341,7 +388,7 @@ function createMessageElement(message) {
     return messageElement;
 }
 
-function createLoadingMessageElement() {
+function createLoadingMessageElement(operation) {
     const loadingMessage = document.createElement("article");
     loadingMessage.className = "chat-message ai";
     loadingMessage.id = "ai-loading-message";
@@ -353,7 +400,13 @@ function createLoadingMessageElement() {
                 <div class="typing-indicator" aria-label="AI is thinking">
                     <span></span><span></span><span></span>
                 </div>
-                <span class="thinking-text">Analyzing document...</span>
+                <span class="thinking-text">
+                    ${
+                        operation === "summary"
+                            ? "Generating summary..."
+                            : "Analyzing document..."
+                    }
+                </span>
             </div>
         </div>
     `;
@@ -384,7 +437,9 @@ function renderActiveConversation({ scrollToEnd = false } = {}) {
     });
 
     if (isPending) {
-        chatMessages.appendChild(createLoadingMessageElement());
+        chatMessages.appendChild(
+            createLoadingMessageElement(getDocumentOperation(activeDocument.id))
+        );
     }
 
     elements.chatContent.classList.add("has-messages");
@@ -463,6 +518,7 @@ async function processSelectedFiles(fileList) {
     }
 
     state.isUploading = true;
+    state.uploadPhase = "uploading";
     clearUploadError();
     setUploadBusy(true, files[0].name);
     syncApplicationStatus();
@@ -478,10 +534,16 @@ async function processSelectedFiles(fileList) {
             continue;
         }
 
-        setUploadBusy(true, file.name);
+        state.uploadPhase = "uploading";
+        setUploadBusy(true, file.name, "Uploading...");
+        syncApplicationStatus();
 
         try {
-            const data = await uploadPdf(file);
+            const data = await uploadPdf(file, () => {
+                state.uploadPhase = "extracting";
+                setUploadBusy(true, file.name, "Extracting...");
+                syncApplicationStatus();
+            });
             const uploadedDocument = createFrontendDocument(data.document);
             state.documents.push(uploadedDocument);
             state.activeDocumentId = uploadedDocument.id;
@@ -493,6 +555,7 @@ async function processSelectedFiles(fileList) {
     }
 
     state.isUploading = false;
+    state.uploadPhase = null;
     setUploadBusy(false);
     elements.pdfInput.value = "";
 
@@ -527,7 +590,7 @@ async function removeDocument(documentId) {
         await deletePdf(documentId);
         const removedActiveDocument = documentId === state.activeDocumentId;
         state.documents.splice(documentIndex, 1);
-        state.pendingDocumentIds.delete(documentId);
+        state.pendingOperations.delete(documentId);
 
         if (removedActiveDocument) {
             const replacementDocument =
@@ -557,6 +620,67 @@ function submitSuggestedQuestion(question) {
     elements.messageForm.requestSubmit();
 }
 
+async function generateAndDisplaySummary(document) {
+    if (document.summary) {
+        addDocumentMessage(document.id, {
+            role: "ai",
+            content: `Summary of ${document.name}:\n\n${document.summary}`,
+            isSummary: true,
+            documentName: document.name,
+        });
+        return;
+    }
+
+    if (isDocumentPending(document.id)) {
+        return;
+    }
+
+    const documentId = document.id;
+    state.pendingOperations.set(documentId, "summary");
+    renderDocuments();
+    renderActiveConversation({ scrollToEnd: true });
+    loadActiveDocumentDraft();
+    syncApplicationStatus();
+
+    let requestFailed = false;
+
+    try {
+        const data = await requestPdfSummary(documentId);
+        const currentDocument = getDocumentById(documentId);
+
+        if (currentDocument) {
+            currentDocument.summary = data.summary;
+            addDocumentMessage(documentId, {
+                role: "ai",
+                content: `Summary of ${currentDocument.name}:\n\n${data.summary}`,
+                isSummary: true,
+                documentName: currentDocument.name,
+            });
+        }
+    } catch (error) {
+        requestFailed = true;
+        addDocumentMessage(documentId, {
+            role: "ai",
+            content: `Sorry, I couldn't generate the summary.\n\n${error.message}`,
+        });
+    } finally {
+        if (getDocumentOperation(documentId) === "summary") {
+            state.pendingOperations.delete(documentId);
+        }
+
+        if (getDocumentById(documentId)) {
+            renderDocuments();
+        }
+
+        if (documentId === state.activeDocumentId) {
+            renderActiveConversation({ scrollToEnd: true });
+            loadActiveDocumentDraft();
+            setApplicationStatus(requestFailed ? "error" : "ready");
+            focusMessageInput();
+        }
+    }
+}
+
 function handleSuggestionAction(action) {
     const activeDocument = getActiveDocument();
 
@@ -568,12 +692,7 @@ function handleSuggestionAction(action) {
     clearUploadError();
 
     if (action === "summarize") {
-        addDocumentMessage(activeDocument.id, {
-            role: "ai",
-            content: `Summary of ${activeDocument.name}:\n\n${activeDocument.summary}`,
-            isSummary: true,
-            documentName: activeDocument.name,
-        });
+        generateAndDisplaySummary(activeDocument);
         return;
     }
 
@@ -608,7 +727,7 @@ async function handleMessageSubmit(event) {
     activeDocument.draft = "";
     elements.messageInput.value = "";
     activeDocument.messages.push({ role: "user", content: question });
-    state.pendingDocumentIds.add(documentId);
+    state.pendingOperations.set(documentId, "question");
     renderDocuments();
     renderActiveConversation({ scrollToEnd: true });
     loadActiveDocumentDraft();
@@ -626,7 +745,9 @@ async function handleMessageSubmit(event) {
             content: `Sorry, I couldn't answer that question.\n\n${error.message}`,
         });
     } finally {
-        state.pendingDocumentIds.delete(documentId);
+        if (getDocumentOperation(documentId) === "question") {
+            state.pendingOperations.delete(documentId);
+        }
 
         if (getDocumentById(documentId)) {
             renderDocuments();

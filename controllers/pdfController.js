@@ -1,7 +1,4 @@
-const {
-    summarizeDocument,
-    answerDocumentQuestion,
-} = require("../services/aiService");
+const { answerDocumentQuestion } = require("../services/aiService");
 const {
     saveDocument,
     getDocument,
@@ -14,13 +11,14 @@ const {
     deleteStoredDocumentFile,
 } = require("../services/fileService");
 const { extractPdfText } = require("../services/pdfService");
+const { getDocumentSummary } = require("../services/summaryService");
 const { sendErrorResponse } = require("../utils/httpResponse");
 
 function isNonEmptyString(value) {
     return typeof value === "string" && value.trim().length > 0;
 }
 
-function createDocumentRecord(uploadedFile, pdfData, summary) {
+function createDocumentRecord(uploadedFile, pdfData) {
     return {
         id: uploadedFile.filename,
         name: uploadedFile.originalname,
@@ -29,7 +27,7 @@ function createDocumentRecord(uploadedFile, pdfData, summary) {
         pages: pdfData.pages,
         characters: pdfData.text.length,
         text: pdfData.text,
-        summary,
+        summary: null,
         history: [],
     };
 }
@@ -65,8 +63,7 @@ async function uploadPdf(request, response, next) {
             );
         }
 
-        const summary = await summarizeDocument(pdfData.text);
-        const document = createDocumentRecord(uploadedFile, pdfData, summary);
+        const document = createDocumentRecord(uploadedFile, pdfData);
         saveDocument(document);
 
         return response.status(201).json({
@@ -76,6 +73,35 @@ async function uploadPdf(request, response, next) {
         });
     } catch (error) {
         await cleanUpUploadedFile(uploadedFile.path);
+        return next(error);
+    }
+}
+
+async function summarizePdf(request, response, next) {
+    try {
+        const { documentId } = request.body || {};
+
+        if (!isNonEmptyString(documentId)) {
+            return sendErrorResponse(response, 400, "Document ID is required.");
+        }
+
+        const document = getDocument(documentId);
+
+        if (!document) {
+            return sendErrorResponse(
+                response,
+                404,
+                "Document not found. Please upload the PDF again."
+            );
+        }
+
+        const summary = await getDocumentSummary(document);
+
+        return response.json({
+            success: true,
+            summary,
+        });
+    } catch (error) {
         return next(error);
     }
 }
@@ -171,6 +197,7 @@ async function removePdf(request, response, next) {
 
 module.exports = {
     uploadPdf,
+    summarizePdf,
     askPdf,
     clearPdfChat,
     removePdf,

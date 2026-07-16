@@ -22,13 +22,14 @@ can be added under `assets/` as the interface evolves.
 - Upload one or more PDF documents through the picker or drag and drop.
 - Validate file type, extension, duplicate uploads, and the 15 MB size limit.
 - Extract text and page counts from readable PDFs.
-- Generate an individual AI summary for each document.
+- Generate and cache an individual AI summary on demand for each document.
 - Keep independent chat history for every uploaded document.
 - Ask free-form questions or use the Summary, Search, and Explain actions.
 - Copy answers and download summaries as text files.
 - Clear or delete only the selected document.
 - Persist light or dark theme preference in the browser.
-- Remove failed uploads when extraction, validation, or AI processing fails.
+- Make documents available for questions immediately after text extraction.
+- Remove failed uploads when extraction or validation fails.
 
 ## Architecture
 
@@ -39,6 +40,7 @@ Browser
       -> PDF controller (HTTP validation and response mapping)
           -> PDF service (text extraction)
           -> AI service (OpenAI Responses API)
+          -> summary service (lazy generation, caching, and deduplication)
           -> document store (in-memory documents and bounded history)
           -> file service (safe upload paths and deletion)
 ```
@@ -66,7 +68,8 @@ AI-PDF-Assistant/
 │   ├── aiService.js
 │   ├── documentStore.js
 │   ├── fileService.js
-│   └── pdfService.js
+│   ├── pdfService.js
+│   └── summaryService.js
 ├── utils/
 │   └── httpResponse.js
 ├── public/
@@ -144,7 +147,7 @@ All responses are JSON. Error responses use the existing shape:
 
 Returns server availability.
 
-### Upload and Analyze a PDF
+### Upload and Extract a PDF
 
 `POST /api/pdfs/upload`
 
@@ -153,8 +156,23 @@ Returns server availability.
 - Maximum size: 15 MB
 - Accepted type: PDF with a `.pdf` extension
 
-Successful uploads return HTTP `201` with document metadata and the generated
-summary.
+Successful uploads return HTTP `201` with document metadata as soon as text
+extraction completes. The `summary` field remains `null` until a summary is
+requested.
+
+### Generate a Document Summary
+
+`POST /api/pdfs/summary`
+
+```json
+{
+  "documentId": "stored-document-id.pdf"
+}
+```
+
+The first request generates and caches the summary. Later requests return the
+cached value, and concurrent requests for the same document share one OpenAI
+operation.
 
 ### Ask a Document Question
 
