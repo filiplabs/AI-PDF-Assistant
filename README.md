@@ -1,138 +1,183 @@
 # AI PDF Assistant
 
-AI PDF Assistant is a Node.js and Express application for uploading PDF
-documents, generating concise OpenAI-powered summaries, and asking questions
-that are answered from the selected document.
+AI PDF Assistant is a full-stack web application for uploading PDF documents,
+extracting their text, generating on-demand AI summaries, and asking
+document-grounded questions. It supports multiple PDFs with independent chat
+histories in a responsive vanilla JavaScript interface.
 
-The browser client uses semantic HTML, structured CSS, and vanilla JavaScript.
-The backend extracts PDF text, keeps document state and conversation context in
-memory, and exposes a small JSON API consumed by the frontend.
+[Live Demo](https://ai-pdf-assistant-qipo.onrender.com/) ·
+[GitHub Repository](https://github.com/filiplabs/AI-PDF-Assistant)
 
-## Screenshots
-
-The application includes responsive light and dark themes. Project screenshots
-can be added under `assets/` as the interface evolves.
-
-| Desktop | Dark mode |
-| --- | --- |
-| Upload, select, summarize, and chat with multiple PDFs. | Theme preference persists between browser sessions. |
+> The Render free tier may take a short time to wake after a period of
+> inactivity.
 
 ## Features
 
-- Upload one or more PDF documents through the picker or drag and drop.
-- Validate file type, extension, duplicate uploads, and the 15 MB size limit.
-- Extract text and page counts from readable PDFs.
-- Generate and cache an individual AI summary on demand for each document.
-- Keep independent chat history for every uploaded document.
-- Ask free-form questions or use the Summary, Search, and Explain actions.
-- Copy answers and download summaries as text files.
-- Clear or delete only the selected document.
-- Persist light or dark theme preference in the browser.
-- Make documents available for questions immediately after text extraction.
-- Remove failed uploads when extraction or validation fails.
+- Upload a single PDF or select multiple PDFs at once.
+- Add documents through the native file picker or drag and drop.
+- Validate PDF type, extension, duplicate files, and the 15 MB size limit.
+- Extract readable PDF text and page metadata with `pdf-parse`.
+- Ask AI questions grounded in the active document.
+- Maintain a separate conversation for every uploaded PDF.
+- Generate summaries only when requested.
+- Cache generated summaries and reuse them without another OpenAI request.
+- Find important names, dates, amounts, deadlines, and terms with Search
+  Details.
+- Explain important or complex document sections in simple language.
+- Clear the conversation for one document without affecting the others.
+- Delete individual PDFs and their associated in-memory state.
+- Copy AI responses to the clipboard.
+- Download summaries as text files.
+- Persist the light or dark theme preference in the browser.
+- Use the application across desktop and mobile layouts.
+
+## Screenshots
+
+### Light mode
+
+> Screenshot placeholder: add the light mode screenshot at
+> `docs/screenshots/light-mode.png`.
+
+### Dark mode
+
+> Screenshot placeholder: add the dark mode screenshot at
+> `docs/screenshots/dark-mode.png`.
+
+## Tech Stack
+
+| Area | Technology |
+| --- | --- |
+| Backend | Node.js, Express |
+| Frontend | Vanilla JavaScript, HTML5, CSS3 |
+| AI | OpenAI API |
+| PDF processing | Multer, pdf-parse |
+| Testing | Node.js built-in test runner |
+| Deployment | Render |
 
 ## Architecture
 
+The application uses a lightweight layered architecture:
+
+- **Routes** define the public HTTP interface.
+- **Controllers** validate requests and coordinate application operations.
+- **Services** handle PDF extraction, OpenAI requests, summary caching,
+  document state, and filesystem operations.
+- **Middleware** validates uploads and normalizes errors.
+- **Frontend** manages document selection, per-document conversations, cached
+  UI state, and rendering without a framework or build step.
+
+### Request flow
+
 ```text
 Browser
-  -> Express application
-      -> upload middleware (Multer validation and storage)
-      -> PDF controller (HTTP validation and response mapping)
-          -> PDF service (text extraction)
-          -> AI service (OpenAI Responses API)
-          -> summary service (lazy generation, caching, and deduplication)
-          -> document store (in-memory documents and bounded history)
-          -> file service (safe upload paths and deletion)
+  |
+  v
+Express routes and middleware
+  |
+  +--> Upload middleware --> PDF extraction --> In-memory document store
+  |
+  +--> Summary service --> Cached summary or AI service --> OpenAI API
+  |
+  +--> AI service --> OpenAI API with document text and recent history
+  |
+  +--> File service --> Safe local PDF deletion
+  |
+  v
+JSON response --> Vanilla JavaScript UI
 ```
 
-`server.js` loads environment variables and starts the HTTP listener. `app.js`
-constructs the Express application, which keeps startup concerns separate from
-middleware and route registration.
+Uploads finish after text extraction, so a document is immediately available
+for questions. Summary generation runs separately when the user selects
+**Summarize**. Concurrent requests for the same summary share one OpenAI
+operation, and subsequent requests return the cached result.
 
-## Folder Structure
+## Project Structure
 
 ```text
 AI-PDF-Assistant/
-├── app.js
-├── server.js
-├── config/
-│   └── uploadConfig.js
-├── controllers/
-│   └── pdfController.js
-├── middleware/
-│   ├── errorHandler.js
-│   └── upload.js
-├── routes/
-│   └── pdfRoutes.js
-├── services/
-│   ├── aiService.js
-│   ├── documentStore.js
-│   ├── fileService.js
-│   ├── pdfService.js
-│   └── summaryService.js
-├── utils/
-│   └── httpResponse.js
-├── public/
-│   ├── css/style.css
-│   ├── js/script.js
-│   └── index.html
-├── tests/
-├── uploads/
-└── .env.example
+|-- app.js                     # Express application configuration
+|-- server.js                  # Environment loading and HTTP startup
+|-- config/
+|   `-- uploadConfig.js        # Upload constants and stored filenames
+|-- controllers/
+|   `-- pdfController.js       # PDF endpoint handlers
+|-- middleware/
+|   |-- errorHandler.js        # Central API error responses
+|   `-- upload.js              # Multer storage and validation
+|-- routes/
+|   `-- pdfRoutes.js           # PDF API routes
+|-- services/
+|   |-- aiService.js           # OpenAI summary and question requests
+|   |-- documentStore.js       # Documents and bounded chat history
+|   |-- fileService.js         # Safe upload cleanup and deletion
+|   |-- pdfService.js          # PDF text extraction
+|   `-- summaryService.js      # Lazy summary caching and deduplication
+|-- utils/
+|   `-- httpResponse.js        # Shared error-response helper
+|-- public/
+|   |-- css/style.css
+|   |-- js/script.js
+|   `-- index.html
+|-- tests/                     # Node.js unit tests
+|-- uploads/                   # Runtime PDF storage
+|-- .env.example
+`-- package.json
 ```
 
-## Installation
+## Local Installation
 
-Requirements:
+### Prerequisites
 
-- Node.js 20 or newer
+- Node.js and npm
 - An OpenAI API key
 
+### Setup
+
 ```bash
-git clone <repository-url>
+git clone https://github.com/filiplabs/AI-PDF-Assistant.git
 cd AI-PDF-Assistant
 npm install
-```
-
-Copy `.env.example` to `.env`, then replace the placeholder API key.
-
-```bash
 cp .env.example .env
 ```
 
-Start the application:
-
-```bash
-npm start
-```
-
-For development with automatic server restarts:
+Update `.env` with your own OpenAI API key, then start the application:
 
 ```bash
 npm run dev
 ```
 
-Open `http://localhost:3000`.
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-Run the built-in tests:
-
-```bash
-npm test
-```
+On Windows PowerShell, use `Copy-Item .env.example .env` instead of `cp`.
 
 ## Environment Variables
 
-| Variable | Required | Default | Description |
+Use placeholder values when creating local configuration. Never commit real
+credentials.
+
+```dotenv
+OPENAI_API_KEY=your_openai_api_key_here
+PORT=3000
+```
+
+| Variable | Required | Default | Purpose |
 | --- | --- | --- | --- |
-| `OPENAI_API_KEY` | Yes | None | API key used by the OpenAI Node.js SDK. |
-| `PORT` | No | `3000` | HTTP port used by the Express server. |
+| `OPENAI_API_KEY` | Yes | None | Authenticates requests to the OpenAI API. |
+| `PORT` | No | `3000` | Port used by the Express server. |
 
-Never commit `.env` or real credentials. The repository tracks only
-`.env.example` with placeholder values.
+## npm Commands
 
-## API Documentation
+| Command | Description |
+| --- | --- |
+| `npm start` | Start the application with Node.js. |
+| `npm run dev` | Start the application with Nodemon and automatic restarts. |
+| `npm test` | Run the test suite with the Node.js built-in test runner. |
 
-All responses are JSON. Error responses use the existing shape:
+## API Reference
+
+Base path: `/api`
+
+Error responses use this shape:
 
 ```json
 {
@@ -141,28 +186,32 @@ All responses are JSON. Error responses use the existing shape:
 }
 ```
 
-### Health Check
+### Health check
 
-`GET /api/health`
+```http
+GET /api/health
+```
 
-Returns server availability.
+Returns the current server status.
 
-### Upload and Extract a PDF
+### Upload a PDF
 
-`POST /api/pdfs/upload`
+```http
+POST /api/pdfs/upload
+Content-Type: multipart/form-data
+```
 
-- Content type: `multipart/form-data`
-- File field: `pdf`
-- Maximum size: 15 MB
-- Accepted type: PDF with a `.pdf` extension
+Send one PDF in the `pdf` form field. The frontend supports multiple selection
+by submitting each selected file through this endpoint. A successful request
+returns HTTP `201` with extracted document metadata. The `summary` field is
+`null` until summary generation is requested.
 
-Successful uploads return HTTP `201` with document metadata as soon as text
-extraction completes. The `summary` field remains `null` until a summary is
-requested.
+### Generate or retrieve a summary
 
-### Generate a Document Summary
-
-`POST /api/pdfs/summary`
+```http
+POST /api/pdfs/summary
+Content-Type: application/json
+```
 
 ```json
 {
@@ -170,13 +219,15 @@ requested.
 }
 ```
 
-The first request generates and caches the summary. Later requests return the
-cached value, and concurrent requests for the same document share one OpenAI
-operation.
+Generates the document summary on the first request and returns the cached
+summary on later requests.
 
-### Ask a Document Question
+### Ask a document question
 
-`POST /api/pdfs/ask`
+```http
+POST /api/pdfs/ask
+Content-Type: application/json
+```
 
 ```json
 {
@@ -185,12 +236,15 @@ operation.
 }
 ```
 
-The answer is grounded in the matching document and its recent conversation
-context.
+Returns an answer grounded in the selected document and its recent
+conversation history.
 
-### Clear Document Conversation
+### Clear a document conversation
 
-`POST /api/pdfs/clear-chat`
+```http
+POST /api/pdfs/clear-chat
+Content-Type: application/json
+```
 
 ```json
 {
@@ -198,34 +252,71 @@ context.
 }
 ```
 
-Clears only the selected document's conversation history.
+Clears only the selected document's conversation history. Its cached summary
+remains available.
 
-### Delete a Document
+### Delete a PDF
 
-`DELETE /api/pdfs/:documentId`
+```http
+DELETE /api/pdfs/:documentId
+```
 
-Deletes the stored PDF and its in-memory document record.
+Deletes the selected PDF from local storage and removes its in-memory document
+state.
 
-## Limitations
+## Testing
 
-- Documents and conversation history are stored in memory and are lost when the
-  server restarts.
-- Uploaded files are local to one server instance and are not shared across a
-  cluster or serverless deployment.
-- Only text-based PDFs are supported. Scanned documents require OCR.
-- Document text sent to OpenAI is limited by the current application context
+Run the complete unit test suite:
+
+```bash
+npm test
+```
+
+The tests cover document storage and bounded history, safe filesystem handling,
+summary caching, concurrent summary-request deduplication, and retry behavior
+after summary failures.
+
+For manual verification, test multiple uploads, document switching, questions
+before summary generation, cached summary reuse, per-document chat clearing,
+deletion, downloads, and theme persistence.
+
+## Deployment on Render
+
+1. Fork or clone the
+   [GitHub repository](https://github.com/filiplabs/AI-PDF-Assistant).
+2. In Render, create a new **Web Service** from the repository.
+3. Use `npm install` as the build command.
+4. Use `npm start` as the start command.
+5. Add `OPENAI_API_KEY` as a secret environment variable.
+6. Deploy the service and verify `/api/health` after startup.
+
+Render supplies `PORT` automatically. Do not hard-code a production port or
+commit secrets. The current local upload directory and in-memory document store
+are ephemeral on Render and should not be treated as persistent storage.
+
+## Known Limitations
+
+- Uploaded files and document state are not persistent across server restarts
+  or redeployments.
+- Scanned and image-only PDFs require OCR, which is not currently implemented.
+- Authentication and user isolation are not implemented.
+- Persistent database and object storage are not implemented.
+- PDF text supplied to the AI is limited by the application's current context
   strategy.
-- Generic processing failures retain the existing HTTP `400` contract for
-  backward compatibility.
-- Authentication, authorization, rate limiting, and persistent storage are not
-  included yet.
 
-## Future Improvements
+## Roadmap
 
-- Add OCR for scanned PDFs.
-- Store document metadata and conversation history in a database.
-- Move uploaded files to managed object storage.
+- Add OCR support for scanned documents.
+- Persist document metadata and conversations in a database.
+- Store PDFs in durable object storage.
 - Add authentication and per-user document isolation.
-- Add request rate limiting and structured application logging.
-- Add streaming responses and cancellation support.
-- Add broader HTTP integration and browser end-to-end test coverage.
+- Add rate limiting, structured logging, and request tracing.
+- Expand API integration and browser end-to-end coverage.
+- Add streaming responses and request cancellation.
+
+## Author
+
+Created by **FilipLabs**.
+
+- GitHub: [github.com/filiplabs](https://github.com/filiplabs)
+- Project: [AI PDF Assistant](https://github.com/filiplabs/AI-PDF-Assistant)
